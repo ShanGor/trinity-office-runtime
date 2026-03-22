@@ -94,6 +94,9 @@ setup_env() {
     # Add runtime library path
     env_vars="${env_vars} --setenv LD_LIBRARY_PATH /runtime/lib:/lib:/lib64"
     
+    # Node.js modules path
+    env_vars="${env_vars} --setenv NODE_PATH /runtime/lib/node_modules"
+    
     # LibreOffice specific paths
     env_vars="${env_vars} --setenv URE_BOOTSTRAP vnd.sun.star.pathname:/runtime/share/libreoffice/program/fundamentalrc"
     
@@ -112,7 +115,11 @@ build_bwrap_cmd() {
     # Mount runtime as read-only
     cmd="${cmd} --ro-bind ${RUNTIME_DIR} /runtime"
     
-    # Mount system directories for LibreOffice dependencies
+    # Mount system directories for dependencies
+    cmd="${cmd} --ro-bind /lib /lib"
+    cmd="${cmd} --ro-bind /lib64 /lib64"
+    cmd="${cmd} --ro-bind /usr/lib /usr/lib"
+    cmd="${cmd} --ro-bind /usr/lib64 /usr/lib64"
     cmd="${cmd} --ro-bind /usr/share /usr/share"
     cmd="${cmd} --ro-bind /etc /etc"
     
