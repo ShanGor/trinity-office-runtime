@@ -51,6 +51,18 @@ fi
 # Install required packages in chroot
 echo "Installing packages..."
 chroot "$ROOTFS" apt-get update
+
+# Install basic packages first
+chroot "$ROOTFS" apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    gnupg \
+    software-properties-common
+
+# Add Node.js repository
+chroot "$ROOTFS" bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
+
+# Install all packages
 chroot "$ROOTFS" apt-get install -y --no-install-recommends \
     libreoffice-common \
     libreoffice-writer \
@@ -61,8 +73,6 @@ chroot "$ROOTFS" apt-get install -y --no-install-recommends \
     python3-pip \
     python3-venv \
     nodejs \
-    npm \
-    ca-certificates \
     fonts-liberation \
     fonts-dejavu-core \
     fonts-freefont-ttf
