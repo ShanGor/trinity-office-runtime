@@ -120,22 +120,98 @@ trinity-pptx exec soffice --headless --convert-to pdf input.docx
 ### Prerequisites
 
 - Linux system (Ubuntu 22.04+ recommended)
-- `debootstrap` or Docker
-- `curl`, `tar`, `gcc`
+- `debootstrap` (for native build) or Docker
+- `curl`, `tar`, `xz-utils`
+- Root access (for debootstrap/chroot)
 
-### Build
+### Build Options
+
+#### Option 1: Local Build (Native)
+
+Requires root access for `debootstrap` and `chroot`:
 
 ```bash
 # Clone the repository
 git clone https://github.com/ShanGor/trinity-pptx-runtime.git
 cd trinity-pptx-runtime
 
+# Install build dependencies
+sudo apt-get update
+sudo apt-get install -y debootstrap curl binutils xz-utils
+
 # Build the runtime
 cd runtime
-./build.sh
+sudo ./build.sh
 
 # Output: trinity-pptx-runtime-linux-x64.tar.gz
 ```
+
+**What the build script does:**
+1. Creates a minimal Ubuntu rootfs using `debootstrap`
+2. Installs required packages (LibreOffice, Python, Node.js, Poppler, fonts)
+3. Installs Python packages (markitdown[pptx], Pillow)
+4. Installs Node.js packages (pptxgenjs)
+5. Optimizes by removing unnecessary files (docs, man pages, caches)
+6. Packages everything into a tarball
+
+#### Option 2: GitHub Actions (Recommended)
+
+Automatically builds for both x64 and arm64 architectures:
+
+**Trigger via git tag:**
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+**Or trigger manually:**
+1. Go to GitHub repository → Actions → "Release PPTX Runtime"
+2. Click "Run workflow"
+3. Enter version number (e.g., `1.0.0`)
+4. Click "Run workflow"
+
+The workflow will:
+- Build for `linux/x64` (Ubuntu latest)
+- Build for `linux/arm64` (Ubuntu ARM runner)
+- Create a GitHub Release with both packages
+- Generate checksums
+- Update the `latest` tag
+
+#### Option 3: Docker Build (No Root Required)
+
+If you don't have root access or want an isolated build:
+
+```bash
+# Clone the repository
+git clone https://github.com/ShanGor/trinity-pptx-runtime.git
+cd trinity-pptx-runtime
+
+# Build using Docker
+docker run --rm -v $(pwd):/workspace -w /workspace ubuntu:22.04 \
+  bash -c "
+    apt-get update && \
+    apt-get install -y debootstrap curl binutils xz-utils && \
+    cd runtime && \
+    ./build.sh
+  "
+
+# Output: trinity-pptx-runtime-linux-x64.tar.gz
+```
+
+### Build Output
+
+All methods produce the same output structure:
+
+```
+trinity-pptx-runtime-linux-x64.tar.gz (or -arm64.tar.gz)
+├── bin/                    # Binaries (soffice, python3, node, pdftoppm, etc.)
+├── lib/                    # Shared libraries
+├── share/                  # Data files (fonts, LibreOffice config)
+├── trinity-pptx           # Main entry script
+└── VERSION                # Version information
+```
+
+**Estimated size:** ~300-500 MB (includes full LibreOffice suite)
 
 ## Architecture
 
