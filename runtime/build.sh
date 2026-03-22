@@ -123,8 +123,18 @@ mkdir -p "$DIST_DIR/bin" "$DIST_DIR/lib" "$DIST_DIR/share"
 cp -r "$ROOTFS/usr/bin"/* "$DIST_DIR/bin/" 2>/dev/null || true
 cp -r "$ROOTFS/usr/lib"/* "$DIST_DIR/lib/" 2>/dev/null || true
 cp -r "$ROOTFS/usr/lib64"/* "$DIST_DIR/lib/" 2>/dev/null || true
+
+# Copy share directories (LibreOffice needs these)
 cp -r "$ROOTFS/usr/share/libreoffice" "$DIST_DIR/share/" 2>/dev/null || true
 cp -r "$ROOTFS/usr/share/fonts" "$DIST_DIR/share/" 2>/dev/null || true
+cp -r "$ROOTFS/usr/share/java" "$DIST_DIR/share/" 2>/dev/null || true
+cp -r "$ROOTFS/usr/share/perl" "$DIST_DIR/share/" 2>/dev/null || true
+cp -r "$ROOTFS/usr/share/pixmaps" "$DIST_DIR/share/" 2>/dev/null || true
+cp -r "$ROOTFS/usr/share/xml" "$DIST_DIR/share/" 2>/dev/null || true
+
+# Copy etc for LibreOffice configuration
+mkdir -p "$DIST_DIR/etc"
+cp -r "$ROOTFS/etc/libreoffice" "$DIST_DIR/etc/" 2>/dev/null || true
 
 # Copy wrapper script
 cp "$PROJECT_ROOT/wrapper/trinity-pptx" "$DIST_DIR/"

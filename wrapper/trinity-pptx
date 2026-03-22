@@ -11,6 +11,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_DIR="${SCRIPT_DIR}"
 VERSION_FILE="${RUNTIME_DIR}/VERSION"
 
+# Add runtime bin directory to PATH for internal commands
+export PATH="${RUNTIME_DIR}/bin:${PATH}"
+
 # Default settings
 USE_BWRAP=true
 BWRAP_OPTS=""
@@ -85,8 +88,14 @@ setup_env() {
     # Set HOME to a writable tmpfs location
     env_vars="${env_vars} --setenv HOME /tmp/home"
     
+    # Add runtime bin to PATH for node, python, etc.
+    env_vars="${env_vars} --setenv PATH /runtime/bin:/usr/bin:/bin"
+    
     # Add runtime library path
-    env_vars="${env_vars} --setenv LD_LIBRARY_PATH /lib:/lib64"
+    env_vars="${env_vars} --setenv LD_LIBRARY_PATH /runtime/lib:/lib:/lib64"
+    
+    # LibreOffice specific paths
+    env_vars="${env_vars} --setenv URE_BOOTSTRAP vnd.sun.star.pathname:/runtime/share/libreoffice/program/fundamentalrc"
     
     echo "$env_vars"
 }
@@ -102,6 +111,10 @@ build_bwrap_cmd() {
     
     # Mount runtime as read-only
     cmd="${cmd} --ro-bind ${RUNTIME_DIR} /runtime"
+    
+    # Mount system directories for LibreOffice dependencies
+    cmd="${cmd} --ro-bind /usr/share /usr/share"
+    cmd="${cmd} --ro-bind /etc /etc"
     
     # Proc and dev filesystems
     cmd="${cmd} --proc /proc"
