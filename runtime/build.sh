@@ -40,13 +40,21 @@ mkdir -p "$ROOTFS"
 # Use debootstrap if available, otherwise download minimal rootfs
 if command -v debootstrap &> /dev/null; then
     echo "Using debootstrap..."
-    debootstrap --variant=minbase --include=ca-certificates,libreoffice-common,poppler-utils \
+    debootstrap --variant=minbase --include=ca-certificates \
         jammy "$ROOTFS" http://archive.ubuntu.com/ubuntu/
 else
     echo "Downloading minimal Ubuntu rootfs..."
     curl -L "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-${DEB_ARCH}.tar.gz" | \
         tar xz -C "$ROOTFS"
 fi
+
+# Configure apt sources with universe repository
+echo "Configuring apt sources..."
+cat > "$ROOTFS/etc/apt/sources.list" << 'EOF'
+deb http://archive.ubuntu.com/ubuntu jammy main universe
+deb http://archive.ubuntu.com/ubuntu jammy-updates main universe
+deb http://archive.ubuntu.com/ubuntu jammy-security main universe
+EOF
 
 # Install required packages in chroot
 echo "Installing packages..."
@@ -56,8 +64,7 @@ chroot "$ROOTFS" apt-get update
 chroot "$ROOTFS" apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    gnupg \
-    software-properties-common
+    gnupg
 
 # Add Node.js repository
 chroot "$ROOTFS" bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
