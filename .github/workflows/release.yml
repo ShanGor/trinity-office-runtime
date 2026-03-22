@@ -11,6 +11,9 @@ on:
         required: true
         default: '1.0.0'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-linux-x64:
     runs-on: ubuntu-latest
@@ -141,7 +144,7 @@ jobs:
           tar xzf trinity-pptx-runtime-linux-x64.tar.gz -C ~/.local/share/trinity-pptx-runtime
           
           # Add to PATH
-          export PATH=\"\$HOME/.local/share/trinity-pptx-runtime:\$PATH\"
+          export PATH="\$HOME/.local/share/trinity-pptx-runtime:\$PATH"
           
           # Use it
           trinity-pptx convert presentation.pptx output.pdf
