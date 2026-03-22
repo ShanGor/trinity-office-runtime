@@ -32,6 +32,14 @@ fi
 
 echo "Building for architecture: $ARCH ($DEB_ARCH)"
 
+# Set Ubuntu repository URL based on architecture
+if [ "$DEB_ARCH" = "arm64" ]; then
+    UBUNTU_REPO="http://ports.ubuntu.com/ubuntu-ports"
+else
+    UBUNTU_REPO="http://archive.ubuntu.com/ubuntu"
+fi
+echo "Using repository: $UBUNTU_REPO"
+
 # Create minimal Ubuntu rootfs
 echo "Creating minimal rootfs..."
 ROOTFS="$BUILD_DIR/rootfs"
@@ -41,7 +49,7 @@ mkdir -p "$ROOTFS"
 if command -v debootstrap &> /dev/null; then
     echo "Using debootstrap..."
     debootstrap --variant=minbase --include=ca-certificates \
-        jammy "$ROOTFS" http://archive.ubuntu.com/ubuntu/
+        jammy "$ROOTFS" "$UBUNTU_REPO"
 else
     echo "Downloading minimal Ubuntu rootfs..."
     curl -L "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-${DEB_ARCH}.tar.gz" | \
@@ -50,10 +58,10 @@ fi
 
 # Configure apt sources with universe repository
 echo "Configuring apt sources..."
-cat > "$ROOTFS/etc/apt/sources.list" << 'EOF'
-deb http://archive.ubuntu.com/ubuntu jammy main universe
-deb http://archive.ubuntu.com/ubuntu jammy-updates main universe
-deb http://archive.ubuntu.com/ubuntu jammy-security main universe
+cat > "$ROOTFS/etc/apt/sources.list" << EOF
+deb $UBUNTU_REPO jammy main universe
+deb $UBUNTU_REPO jammy-updates main universe
+deb $UBUNTU_REPO jammy-security main universe
 EOF
 
 # Install required packages in chroot
