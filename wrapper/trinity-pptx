@@ -151,9 +151,18 @@ discover_library_path() {
         library_path="$(append_path_entry "$library_path" "${prefix}${dir#$RUNTIME_DIR}")"
     done < <(find "$RUNTIME_DIR/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)
 
-    library_path="$(append_path_entry "$library_path" "${prefix}/lib/libreoffice/program")"
-
     echo "$library_path"
+}
+
+discover_libreoffice_program_path() {
+    local prefix="${1:-/runtime}"
+    local program_path="${prefix}/lib/libreoffice/program"
+
+    if [ -d "$RUNTIME_DIR/lib/libreoffice/program" ]; then
+        echo "$program_path"
+    else
+        echo ""
+    fi
 }
 
 discover_dri_driver_path() {
@@ -174,6 +183,17 @@ discover_dri_driver_path() {
     done < <(find "$RUNTIME_DIR/lib" -mindepth 2 -maxdepth 4 -type d -name dri | sort)
 
     echo "$dri_path"
+}
+
+command_needs_libreoffice_env() {
+    case "${1:-}" in
+        soffice)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 rewrite_workdir_args() {
@@ -201,15 +221,13 @@ rewrite_workdir_args() {
 
 # Setup environment variables for LibreOffice
 setup_env() {
+    local tool_cmd="${1:-}"
     local env_vars=""
     local python_path=""
     local node_path=""
     local library_path=""
+    local libreoffice_program_path=""
     local dri_driver_path=""
-    
-    # Prefer deterministic software rendering for headless LibreOffice use.
-    env_vars="${env_vars} --setenv SAL_DISABLESKIA 1"
-    env_vars="${env_vars} --setenv LIBGL_ALWAYS_SOFTWARE 1"
     
     # Set HOME to a writable tmpfs location
     env_vars="${env_vars} --setenv HOME /tmp/home"
@@ -226,6 +244,10 @@ setup_env() {
     
     # Add runtime library path
     library_path="$(discover_library_path /runtime)"
+    if command_needs_libreoffice_env "$tool_cmd"; then
+        libreoffice_program_path="$(discover_libreoffice_program_path /runtime)"
+        library_path="$(append_path_entry "$library_path" "$libreoffice_program_path")"
+    fi
     if [ -n "$library_path" ]; then
         env_vars="${env_vars} --setenv LD_LIBRARY_PATH ${library_path}:/lib:/lib64"
     else
@@ -238,19 +260,26 @@ setup_env() {
         env_vars="${env_vars} --setenv NODE_PATH ${node_path}"
     fi
 
-    dri_driver_path="$(discover_dri_driver_path /runtime)"
-    if [ -n "$dri_driver_path" ]; then
-        env_vars="${env_vars} --setenv LIBGL_DRIVERS_PATH ${dri_driver_path}"
+    if command_needs_libreoffice_env "$tool_cmd"; then
+        # Prefer deterministic software rendering for headless LibreOffice use.
+        env_vars="${env_vars} --setenv SAL_DISABLESKIA 1"
+        env_vars="${env_vars} --setenv LIBGL_ALWAYS_SOFTWARE 1"
+
+        dri_driver_path="$(discover_dri_driver_path /runtime)"
+        if [ -n "$dri_driver_path" ]; then
+            env_vars="${env_vars} --setenv LIBGL_DRIVERS_PATH ${dri_driver_path}"
+        fi
+
+        # LibreOffice specific paths
+        env_vars="${env_vars} --setenv URE_BOOTSTRAP vnd.sun.star.pathname:/runtime/lib/libreoffice/program/fundamentalrc"
     fi
-    
-    # LibreOffice specific paths
-    env_vars="${env_vars} --setenv URE_BOOTSTRAP vnd.sun.star.pathname:/runtime/lib/libreoffice/program/fundamentalrc"
     
     echo "$env_vars"
 }
 
 # Build bubblewrap command
 build_bwrap_cmd() {
+    local tool_cmd="${1:-}"
     local cmd=""
     
     # Basic sandbox setup
@@ -286,7 +315,7 @@ build_bwrap_cmd() {
     fi
     
     # Environment variables
-    cmd="${cmd} $(setup_env)"
+    cmd="${cmd} $(setup_env "$tool_cmd")"
     
     # Additional user-specified options
     if [ -n "${TRINITY_BWRAP_OPTS:-}" ]; then
@@ -310,7 +339,7 @@ exec_sandboxed() {
     if [ "$USE_BWRAP" = true ] && command -v bwrap &> /dev/null; then
         log "Using bubblewrap sandbox"
         local bwrap_args
-        bwrap_args=$(build_bwrap_cmd)
+        bwrap_args=$(build_bwrap_cmd "$cmd")
         
         # Change to work directory if specified
         if [ -n "$WORK_DIR" ]; then
@@ -324,7 +353,10 @@ exec_sandboxed() {
         runtime_pythonpath="$(discover_pythonpath "$RUNTIME_DIR")"
         runtime_nodepath="$(discover_node_path "$RUNTIME_DIR")"
         runtime_library_path="$(discover_library_path "$RUNTIME_DIR")"
-        runtime_dri_driver_path="$(discover_dri_driver_path "$RUNTIME_DIR")"
+        if command_needs_libreoffice_env "$cmd"; then
+            runtime_library_path="$(append_path_entry "$runtime_library_path" "$(discover_libreoffice_program_path "$RUNTIME_DIR")")"
+            runtime_dri_driver_path="$(discover_dri_driver_path "$RUNTIME_DIR")"
+        fi
         if [ -n "$runtime_library_path" ]; then
             runtime_library_path="${runtime_library_path}:/lib:/lib64"
         else
@@ -338,28 +370,46 @@ exec_sandboxed() {
         if [ -n "$WORK_DIR" ]; then
             (
                 cd "$WORK_DIR" && \
+                if command_needs_libreoffice_env "$cmd"; then
+                    HOME="$runtime_home" \
+                    PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
+                    LD_LIBRARY_PATH="$runtime_library_path" \
+                    LIBGL_DRIVERS_PATH="$runtime_dri_driver_path" \
+                    SAL_DISABLESKIA="1" \
+                    LIBGL_ALWAYS_SOFTWARE="1" \
+                    URE_BOOTSTRAP="vnd.sun.star.pathname:${RUNTIME_DIR}/lib/libreoffice/program/fundamentalrc" \
+                    PYTHONPATH="$runtime_pythonpath" \
+                    NODE_PATH="$runtime_nodepath" \
+                    exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+                else
+                    HOME="$runtime_home" \
+                    PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
+                    LD_LIBRARY_PATH="$runtime_library_path" \
+                    PYTHONPATH="$runtime_pythonpath" \
+                    NODE_PATH="$runtime_nodepath" \
+                    exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+                fi
+            )
+        else
+            if command_needs_libreoffice_env "$cmd"; then
                 HOME="$runtime_home" \
                 PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
                 LD_LIBRARY_PATH="$runtime_library_path" \
+                LIBGL_DRIVERS_PATH="$runtime_dri_driver_path" \
                 SAL_DISABLESKIA="1" \
                 LIBGL_ALWAYS_SOFTWARE="1" \
-                LIBGL_DRIVERS_PATH="$runtime_dri_driver_path" \
                 URE_BOOTSTRAP="vnd.sun.star.pathname:${RUNTIME_DIR}/lib/libreoffice/program/fundamentalrc" \
                 PYTHONPATH="$runtime_pythonpath" \
                 NODE_PATH="$runtime_nodepath" \
                 exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
-            )
-        else
-            HOME="$runtime_home" \
-            PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
-            LD_LIBRARY_PATH="$runtime_library_path" \
-            SAL_DISABLESKIA="1" \
-            LIBGL_ALWAYS_SOFTWARE="1" \
-            LIBGL_DRIVERS_PATH="$runtime_dri_driver_path" \
-            URE_BOOTSTRAP="vnd.sun.star.pathname:${RUNTIME_DIR}/lib/libreoffice/program/fundamentalrc" \
-            PYTHONPATH="$runtime_pythonpath" \
-            NODE_PATH="$runtime_nodepath" \
-            exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+            else
+                HOME="$runtime_home" \
+                PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
+                LD_LIBRARY_PATH="$runtime_library_path" \
+                PYTHONPATH="$runtime_pythonpath" \
+                NODE_PATH="$runtime_nodepath" \
+                exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+            fi
         fi
     fi
 }
