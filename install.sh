@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # Trinity PPTX Runtime - Installation Script
-# Installs from a local checkout when available, otherwise downloads a release
+# Downloads and installs a release by default; local install is explicit-only
 #
 
 set -euo pipefail
@@ -13,7 +13,7 @@ GITHUB_REPO="ShanGor/${REPO}"
 INSTALL_DIR="${HOME}/.local/share/trinity-pptx-runtime"
 BIN_DIR="${HOME}/.local/bin"
 VERSION="${VERSION:-latest}"
-SOURCE_MODE="auto"
+SOURCE_MODE="release"
 
 # Colors for output
 RED='\033[0;31m'
@@ -153,7 +153,7 @@ find_local_tarball() {
     fi
 }
 
-ensure_local_build_artifact() {
+find_local_install_artifact() {
     local arch="$1"
     local os="$2"
     local tarball
@@ -167,26 +167,6 @@ ensure_local_build_artifact() {
         echo "${SCRIPT_DIR}/dist"
         return
     fi
-
-    if ! repo_has_local_source; then
-        return
-    fi
-
-    log_info "No local runtime artifact found. Building from local source..." >&2
-    (
-        cd "${SCRIPT_DIR}/runtime"
-        ./build.sh
-    )
-
-    tarball="$(find_local_tarball "$arch" "$os")"
-    if [ -n "$tarball" ]; then
-        echo "$tarball"
-        return
-    fi
-
-    if [ -x "${SCRIPT_DIR}/dist/trinity-pptx" ]; then
-        echo "${SCRIPT_DIR}/dist"
-    fi
 }
 
 install_from_local_source() {
@@ -194,10 +174,10 @@ install_from_local_source() {
     local os="$2"
     local artifact
 
-    artifact="$(ensure_local_build_artifact "$arch" "$os")"
+    artifact="$(find_local_install_artifact "$arch" "$os")"
     if [ -z "$artifact" ]; then
         log_error "No local runtime artifact is available."
-        log_info "Run: (cd runtime && ./build.sh)"
+        log_info "Build the runtime first, for example: (cd runtime && ./build.sh)"
         exit 1
     fi
 
@@ -262,14 +242,6 @@ install_runtime() {
             ;;
         release)
             install_from_release "$arch" "$os"
-            ;;
-        auto)
-            if repo_has_local_source; then
-                log_info "Local source checkout detected. Preferring local build/install over GitHub release."
-                install_from_local_source "$arch" "$os"
-            else
-                install_from_release "$arch" "$os"
-            fi
             ;;
         *)
             log_error "Unknown source mode: ${SOURCE_MODE}"
@@ -401,8 +373,8 @@ main() {
                 echo "  --version <ver>      Install specific version (default: latest)"
                 echo "  --install-dir <dir>  Installation directory (default: ~/.local/share/trinity-pptx-runtime)"
                 echo "  --bin-dir <dir>      Binary symlink directory (default: ~/.local/bin)"
-                echo "  --local              Install from local checkout/build artifact"
-                echo "  --release            Install from GitHub release even in a local checkout"
+                echo "  --local              Install from an already-built local artifact"
+                echo "  --release            Install from GitHub release (default)"
                 echo "  --help               Show this help message"
                 exit 0
                 ;;
