@@ -153,7 +153,7 @@ sudo ./build.sh
 3. Installs Python packages (markitdown[pptx], Pillow) into the bundled runtime
 4. Installs Node.js packages (pptxgenjs)
 5. Packages both `/usr` and `/usr/local` runtime assets needed by the tools
-6. Verifies the packaged artifact can import `markitdown` and `pptxgenjs`
+6. Verifies the packaged artifact can import `markitdown` and `pptxgenjs`, and when `bwrap` is available also verifies sandboxed `soffice --version`
 7. Optimizes by removing unnecessary files (docs, man pages, caches)
 
 #### Option 2: GitHub Actions (Recommended)

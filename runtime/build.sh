@@ -43,6 +43,10 @@ verify_runtime_bundle() {
 
     TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
         node -e "require('pptxgenjs')"
+
+    if command -v bwrap >/dev/null 2>&1; then
+        "$DIST_DIR/trinity-pptx" exec soffice --version >/dev/null
+    fi
 }
 
 echo "=== Trinity PPTX Runtime Builder ==="

@@ -214,6 +214,15 @@ verify_installation() {
         log_error "Runtime verification failed: bundled Python dependencies are missing"
         exit 1
     fi
+
+    if command -v bwrap &> /dev/null; then
+        if "${INSTALL_DIR}/trinity-pptx" exec soffice --version &> /dev/null; then
+            log_success "Sandboxed LibreOffice verified"
+        else
+            log_error "Runtime verification failed: sandboxed soffice is not executable"
+            exit 1
+        fi
+    fi
 }
 
 # Print usage instructions

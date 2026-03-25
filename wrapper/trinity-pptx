@@ -181,8 +181,10 @@ build_bwrap_cmd() {
     cmd="${cmd} --ro-bind ${RUNTIME_DIR} /runtime"
     
     # Mount system directories for dependencies
+    cmd="${cmd} --ro-bind /bin /bin"
     cmd="${cmd} --ro-bind /lib /lib"
     cmd="${cmd} --ro-bind /lib64 /lib64"
+    cmd="${cmd} --ro-bind /usr/bin /usr/bin"
     cmd="${cmd} --ro-bind /usr/lib /usr/lib"
     cmd="${cmd} --ro-bind /usr/lib64 /usr/lib64"
     cmd="${cmd} --ro-bind /usr/share /usr/share"
