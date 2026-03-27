@@ -47,6 +47,8 @@ copy_binary_with_deps /bin/sh "${runtime_dir}/rootfs"
 cat > "${runtime_dir}/rootfs/usr/bin/soffice" << 'INNER'
 #!/bin/sh
 printf '%s\n' "$0"
+printf 'LANG=%s\n' "${LANG:-}"
+printf 'LC_ALL=%s\n' "${LC_ALL:-}"
 if [ -d /usr/lib ] && [ -d /usr/share ] && [ -d /etc/libreoffice ] && [ -d /var/lib/libreoffice ]; then
     echo "FHS_OK"
 fi
@@ -69,6 +71,18 @@ fi
 
 if [[ "$output" != *"FHS_OK"* ]]; then
     echo "Expected wrapper to expose bundled /usr, /etc, and /var LibreOffice paths" >&2
+    echo "Actual: ${output}" >&2
+    exit 1
+fi
+
+if [[ "$output" != *"LANG=C.UTF-8"* ]]; then
+    echo "Expected wrapper to force a UTF-8 locale for LibreOffice" >&2
+    echo "Actual: ${output}" >&2
+    exit 1
+fi
+
+if [[ "$output" != *"LC_ALL=C.UTF-8"* ]]; then
+    echo "Expected wrapper to export LC_ALL=C.UTF-8 for LibreOffice" >&2
     echo "Actual: ${output}" >&2
     exit 1
 fi

@@ -525,9 +525,11 @@ setup_env() {
     
     # Set HOME to a writable tmpfs location
     env_vars="${env_vars} --setenv HOME /tmp/home"
-    
+
     # Add runtime bin to PATH for node, python, etc.
     env_vars="${env_vars} --setenv PATH /runtime/bin:/usr/bin:/bin"
+    env_vars="${env_vars} --setenv LANG C.UTF-8"
+    env_vars="${env_vars} --setenv LC_ALL C.UTF-8"
 
     # Ensure bundled Python packages are importable across both /usr and
     # /usr/local-derived layouts.
@@ -621,6 +623,8 @@ build_libreoffice_rootfs_bwrap_cmd() {
 
     cmd="${cmd} --setenv HOME /tmp/home"
     cmd="${cmd} --setenv PATH /usr/bin:/bin"
+    cmd="${cmd} --setenv LANG C.UTF-8"
+    cmd="${cmd} --setenv LC_ALL C.UTF-8"
     cmd="${cmd} --setenv SAL_DISABLESKIA 1"
     cmd="${cmd} --setenv LIBGL_ALWAYS_SOFTWARE 1"
 
@@ -756,6 +760,8 @@ run_sandboxed() {
                 cd "$WORK_DIR" && \
                 if command_needs_libreoffice_env "$cmd"; then
                     HOME="$runtime_home" \
+                    LANG="C.UTF-8" \
+                    LC_ALL="C.UTF-8" \
                     PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
                     LD_LIBRARY_PATH="$runtime_library_path" \
                     LIBGL_DRIVERS_PATH="$runtime_dri_driver_path" \
@@ -767,6 +773,8 @@ run_sandboxed() {
                     "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
                 else
                     HOME="$runtime_home" \
+                    LANG="C.UTF-8" \
+                    LC_ALL="C.UTF-8" \
                     PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
                     LD_LIBRARY_PATH="$runtime_library_path" \
                     PYTHONPATH="$runtime_pythonpath" \
@@ -777,6 +785,8 @@ run_sandboxed() {
         else
             if command_needs_libreoffice_env "$cmd"; then
                 HOME="$runtime_home" \
+                LANG="C.UTF-8" \
+                LC_ALL="C.UTF-8" \
                 PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
                 LD_LIBRARY_PATH="$runtime_library_path" \
                 LIBGL_DRIVERS_PATH="$runtime_dri_driver_path" \
@@ -788,6 +798,8 @@ run_sandboxed() {
                 "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
             else
                 HOME="$runtime_home" \
+                LANG="C.UTF-8" \
+                LC_ALL="C.UTF-8" \
                 PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
                 LD_LIBRARY_PATH="$runtime_library_path" \
                 PYTHONPATH="$runtime_pythonpath" \

@@ -122,6 +122,31 @@ resolve_ubuntu_repo() {
     fi
 }
 
+runtime_apt_packages() {
+    cat <<'EOF'
+libreoffice-impress
+libreoffice-java-common
+libreoffice-sdbc-hsqldb
+libegl1
+libgbm1
+libgl1
+libgl1-mesa-dri
+libglx-mesa0
+libopengl0
+poppler-utils
+python3
+python3-pip
+python3-venv
+nodejs
+npm
+fonts-liberation
+fonts-dejavu-core
+fonts-freefont-ttf
+fonts-noto-cjk
+fonts-wqy-zenhei
+EOF
+}
+
 run_in_chroot() {
     local rootfs="$1"
     local passthrough_var=""
@@ -390,6 +415,7 @@ bwrap_is_usable() {
 
 main() {
     local preferred_build_dir="${TRINITY_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
+    local -a runtime_packages=()
 
     DIST_DIR="${TRINITY_DIST_DIR:-$DEFAULT_DIST_DIR}"
     BUILD_DIR="$(choose_build_dir "$preferred_build_dir")"
@@ -471,28 +497,14 @@ EOF
     # Use Ubuntu's bundled Node.js packages to keep the build self-contained
     # on restricted networks instead of depending on the external NodeSource
     # repository during runtime assembly.
+    # Bundle CJK-capable fonts so LibreOffice can substitute missing Windows
+    # Chinese fonts instead of rendering tofu boxes in exported PDFs.
     # libreoffice-sdbc-hsqldb stays explicit because libreoffice-base-drivers
     # only recommends it, and this build intentionally uses
     # --no-install-recommends to keep the bundle size down.
+    mapfile -t runtime_packages < <(runtime_apt_packages)
     run_in_chroot "$ROOTFS" apt-get install -y --no-install-recommends \
-        libreoffice-impress \
-        libreoffice-java-common \
-        libreoffice-sdbc-hsqldb \
-        libegl1 \
-        libgbm1 \
-        libgl1 \
-        libgl1-mesa-dri \
-        libglx-mesa0 \
-        libopengl0 \
-        poppler-utils \
-        python3 \
-        python3-pip \
-        python3-venv \
-        nodejs \
-        npm \
-        fonts-liberation \
-        fonts-dejavu-core \
-        fonts-freefont-ttf
+        "${runtime_packages[@]}"
 
     # Clean up apt cache
     run_in_chroot "$ROOTFS" apt-get clean
