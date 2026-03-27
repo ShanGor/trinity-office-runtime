@@ -10,6 +10,11 @@ if ! command -v bwrap >/dev/null 2>&1; then
     exit 0
 fi
 
+if ! bwrap --ro-bind / / --dev /dev --proc /proc /bin/true >/dev/null 2>&1; then
+    echo "SKIP: bwrap not available"
+    exit 0
+fi
+
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 

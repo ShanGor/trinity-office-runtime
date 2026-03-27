@@ -14,6 +14,11 @@ arch_dir="${runtime_dir}/lib/x86_64-linux-gnu"
 
 mkdir -p "${program_dir}/services" "${arch_dir}"
 touch \
+    "${program_dir}/bootstraprc" \
+    "${program_dir}/redirectrc" \
+    "${program_dir}/fundamentalrc" \
+    "${program_dir}/sofficerc" \
+    "${program_dir}/setuprc" \
     "${program_dir}/unorc" \
     "${program_dir}/lounorc" \
     "${program_dir}/types.rdb" \
@@ -43,4 +48,28 @@ if [ ! -f "${arch_dir}/libexisting.so" ]; then
     exit 1
 fi
 
-echo "PASS: install.sh repairs LibreOffice multi-arch compatibility symlinks"
+if [ -L "${arch_dir}/fundamentalrc" ] || [ ! -f "${arch_dir}/fundamentalrc" ]; then
+    echo "Expected fundamentalrc to be copied into the multi-arch directory" >&2
+    exit 1
+fi
+
+if [ -L "${arch_dir}/sofficerc" ] || [ ! -f "${arch_dir}/sofficerc" ]; then
+    echo "Expected sofficerc to be copied into the multi-arch directory" >&2
+    exit 1
+fi
+
+echo "BRAND_BASE_DIR=file:///usr/lib/libreoffice" > "${program_dir}/fundamentalrc"
+echo 'FHS_CONFIG_FILE=file://${ORIGIN}/../../../etc/libreoffice/sofficerc' > "${program_dir}/sofficerc"
+repair_libreoffice_program_compat_symlinks "${runtime_dir}"
+
+if ! grep -F 'BRAND_BASE_DIR=${ORIGIN}/../libreoffice' "${arch_dir}/fundamentalrc" >/dev/null; then
+    echo "Expected multi-arch fundamentalrc to use the bundled libreoffice root" >&2
+    exit 1
+fi
+
+if ! grep -F 'file://${ORIGIN}/../../etc/libreoffice/sofficerc' "${arch_dir}/sofficerc" >/dev/null; then
+    echo "Expected multi-arch sofficerc to use the bundled etc directory" >&2
+    exit 1
+fi
+
+echo "PASS: install.sh repairs LibreOffice multi-arch compatibility entries"

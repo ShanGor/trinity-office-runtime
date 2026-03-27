@@ -147,7 +147,7 @@ repair_libreoffice_bundle_paths() {
     if [ -f "$bootstrap_rc" ]; then
         sed -i \
             -e 's|^InstallMode=.*|InstallMode=install|' \
-            -e 's|^UserInstallation=.*|UserInstallation=${ORIGIN}/../../..|' \
+            -e 's|^UserInstallation=.*|UserInstallation=$SYSUSERCONFIG/libreoffice/4|' \
             "$bootstrap_rc"
     fi
 }
@@ -156,33 +156,45 @@ repair_libreoffice_program_compat_symlinks() {
     local install_root="$1"
     local program_dir="${install_root}/lib/libreoffice/program"
     local arch_dir=""
-    local src=""
     local base=""
     local dst=""
     local repaired="0"
+    local -a symlink_entries=(
+        "unorc"
+        "lounorc"
+        "types.rdb"
+        "services.rdb"
+        "libgcc3_uno.so"
+    )
+    local -a copy_entries=(
+        "bootstraprc"
+        "redirectrc"
+        "fundamentalrc"
+        "sofficerc"
+        "setuprc"
+        "versionrc"
+    )
+    local src=""
+    local entry=""
 
     if [ ! -d "$program_dir" ]; then
         return 0
     fi
 
     while IFS= read -r arch_dir; do
-        for src in "$program_dir"/*; do
+        for entry in "${symlink_entries[@]}"; do
+            src="${program_dir}/${entry}"
+            dst="${arch_dir}/${entry}"
             if [ ! -e "$src" ]; then
                 continue
             fi
-
-            base="$(basename "$src")"
-            dst="${arch_dir}/${base}"
-
             if [ -L "$dst" ] && [ ! -e "$dst" ]; then
                 rm -f "$dst"
             fi
-
             if [ -e "$dst" ] || [ -L "$dst" ]; then
                 continue
             fi
-
-            ln -s "../libreoffice/program/${base}" "$dst"
+            ln -s "../libreoffice/program/${entry}" "$dst"
             repaired="1"
         done
 
@@ -198,11 +210,61 @@ repair_libreoffice_program_compat_symlinks() {
                 fi
             fi
         done
+
+        for entry in "${copy_entries[@]}"; do
+            src="${program_dir}/${entry}"
+            dst="${arch_dir}/${entry}"
+            if [ ! -f "$src" ]; then
+                continue
+            fi
+            if [ -L "$dst" ] || [ -f "$dst" ]; then
+                rm -f "$dst"
+            fi
+            cp "$src" "$dst"
+            case "$entry" in
+                fundamentalrc)
+                    sed -i \
+                        -e 's|^BRAND_BASE_DIR=.*|BRAND_BASE_DIR=${ORIGIN}/../libreoffice|' \
+                        -e 's|^BRAND_INI_DIR=.*|BRAND_INI_DIR=${ORIGIN}/../libreoffice/program|' \
+                        -e 's|file://${ORIGIN}/../../../etc/libreoffice/registry|file://${ORIGIN}/../../etc/libreoffice/registry|g' \
+                        -e 's|file://${ORIGIN}/../../../share/java/hsqldb1.8.0.jar|file://${ORIGIN}/../../share/java/hsqldb1.8.0.jar|g' \
+                        "$dst"
+                    ;;
+                sofficerc)
+                    sed -i \
+                        -e 's|file://${ORIGIN}/../../../etc/libreoffice/sofficerc|file://${ORIGIN}/../../etc/libreoffice/sofficerc|g' \
+                        "$dst"
+                    ;;
+            esac
+            repaired="1"
+        done
     done < <(find "${install_root}/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)
 
     if [ "$repaired" = "1" ]; then
-        log_info "Repairing LibreOffice multi-arch compatibility symlinks..."
+        log_info "Repairing LibreOffice multi-arch compatibility entries..."
     fi
+}
+
+repair_libreoffice_share_symlinks() {
+    local install_root="$1"
+    local share_dir="${install_root}/lib/libreoffice/share"
+
+    if [ ! -d "$share_dir" ]; then
+        return 0
+    fi
+
+    mkdir -p \
+        "${install_root}/var/lib/libreoffice/share/prereg/bundled" \
+        "${install_root}/var/spool/libreoffice/uno_packages/cache"
+
+    rm -f "${share_dir}/registry"
+    ln -s "../../../etc/libreoffice/registry" "${share_dir}/registry"
+
+    mkdir -p "${share_dir}/psprint" "${share_dir}/prereg" "${share_dir}/uno_packages"
+    rm -f "${share_dir}/psprint/psprint.conf" "${share_dir}/prereg/bundled" "${share_dir}/uno_packages/cache"
+    ln -s "../../../../etc/libreoffice/psprint.conf" "${share_dir}/psprint/psprint.conf"
+    ln -s "../../../../var/lib/libreoffice/share/prereg/bundled" "${share_dir}/prereg/bundled"
+    ln -s "../../../../var/spool/libreoffice/uno_packages/cache" "${share_dir}/uno_packages/cache"
 }
 
 repair_wrapper_script() {
@@ -287,6 +349,7 @@ extract_tarball_into_install_dir() {
     install_runtime_wrapper "${INSTALL_DIR}/trinity-pptx"
     repair_libreoffice_bundle_paths "${INSTALL_DIR}"
     repair_libreoffice_program_compat_symlinks "${INSTALL_DIR}"
+    repair_libreoffice_share_symlinks "${INSTALL_DIR}"
     log_success "Extraction complete"
 }
 
@@ -299,6 +362,7 @@ copy_dist_into_install_dir() {
     install_runtime_wrapper "${INSTALL_DIR}/trinity-pptx"
     repair_libreoffice_bundle_paths "${INSTALL_DIR}"
     repair_libreoffice_program_compat_symlinks "${INSTALL_DIR}"
+    repair_libreoffice_share_symlinks "${INSTALL_DIR}"
     log_success "Local runtime copy complete"
 }
 
@@ -421,6 +485,11 @@ install_runtime() {
     esac
 }
 
+bwrap_is_usable() {
+    command -v bwrap >/dev/null 2>&1 || return 1
+    bwrap --ro-bind / / --dev /dev --proc /proc /bin/true >/dev/null 2>&1
+}
+
 # Update shell configuration
 update_shell_config() {
     local shell_rc=""
@@ -479,11 +548,20 @@ verify_installation() {
         exit 1
     fi
 
-    if command -v bwrap &> /dev/null; then
+    if [ ! -x "${INSTALL_DIR}/bin/soffice" ]; then
+        log_error "Runtime verification failed: bundled soffice launcher is missing or not executable"
+        exit 1
+    fi
+
+    if bwrap_is_usable; then
         if soffice_verify_output=$("${INSTALL_DIR}/trinity-pptx" exec soffice --headless --version 2>&1); then
             log_success "Sandboxed LibreOffice verified"
         else
-            log_error "Runtime verification failed: sandboxed soffice is not executable"
+            log_error "Runtime verification failed: sandboxed soffice failed to start"
+            if [ -f "${INSTALL_DIR}/lib/libreoffice/program/bootstraprc" ] && \
+                grep -F 'UserInstallation=${ORIGIN}/../../..' "${INSTALL_DIR}/lib/libreoffice/program/bootstraprc" >/dev/null 2>&1; then
+                log_error 'LibreOffice bootstrap still points UserInstallation into the read-only runtime bundle. Reinstall with the updated installer so it uses $SYSUSERCONFIG/libreoffice/4.'
+            fi
             if printf '%s' "$soffice_verify_output" | grep -F 'DeploymentException' >/dev/null 2>&1; then
                 log_error "LibreOffice bootstrap could not resolve packaged UNO/program assets. Rebuild or reinstall with the updated compatibility-symlink repair."
             fi
@@ -495,6 +573,8 @@ verify_installation() {
             fi
             exit 1
         fi
+    elif command -v bwrap >/dev/null 2>&1; then
+        log_warning "Skipping sandboxed LibreOffice verification because bubblewrap is installed but unusable in this environment"
     fi
 }
 

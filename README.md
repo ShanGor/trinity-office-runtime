@@ -40,8 +40,9 @@ curl -LO https://github.com/ShanGor/trinity-pptx-runtime/releases/latest/downloa
 `install.sh` downloads the GitHub release by default. If you have already built a local runtime artifact from a source checkout, use `--local` to install that artifact explicitly instead.
 When `install.sh` is run from a source checkout, it installs the checked-out `wrapper/trinity-pptx` over the downloaded bundle so wrapper fixes apply immediately. Standalone installs still repair older downloaded wrappers before runtime verification, including the extra sandbox mounts and bundled-library search paths needed by LibreOffice.
 The wrapper now searches runtime loader paths under both `lib` and `usr/lib` multi-arch roots, so legacy bundles that place LibreOffice dependencies under `usr/lib/*-linux-gnu` (for example `libgpgmepp.so.6`) can still start `soffice` successfully.
-The installer and build now also repair LibreOffice program compatibility symlinks inside `lib/*-linux-gnu`, because some bundled UNO/bootstrap assets are resolved from those multi-arch roots during `soffice` startup.
-The installer also rewrites LibreOffice bootstrap metadata inside the bundle to use bundle-relative paths instead of distro package paths such as `/usr/lib/libreoffice` and `/etc/libreoffice`.
+The installer and build now also repair LibreOffice program compatibility entries inside `lib/*-linux-gnu`, because some bundled UNO/bootstrap assets are resolved from those multi-arch roots during `soffice` startup.
+The installer also rewrites LibreOffice bootstrap metadata inside the bundle to use bundle-relative program/config paths while keeping `UserInstallation` on the writable per-user profile path instead of inside the read-only runtime mount.
+The build and installer also rewrite LibreOffice share-tree symlinks that normally point at `/etc` or `/var`, so the portable bundle no longer depends on host paths such as `/etc/libreoffice/registry` or `/var/spool/libreoffice/uno_packages/cache`.
 If an older release bundle still lacks bundled software-rendering files such as `libGL.so.1` and `swrast_dri.so`, the installer now reports that explicitly so you can rebuild and publish a refreshed release artifact instead of chasing a generic `soffice` failure.
 
 ### Usage
@@ -169,7 +170,7 @@ sudo ./build.sh
 3. Installs Python packages (markitdown[pptx], Pillow) into the bundled runtime
 4. Installs Node.js packages (pptxgenjs)
 5. Packages both `/usr` and `/usr/local` runtime assets needed by the tools
-6. Verifies the packaged artifact can import `markitdown` and `pptxgenjs`, and when `bwrap` is available also verifies sandboxed `soffice --headless --version`
+6. Verifies the packaged artifact can import `markitdown` and `pptxgenjs`, and when `bwrap` is usable also verifies sandboxed `soffice --headless --version`
 7. Optimizes by removing unnecessary files (docs, man pages, caches)
 
 #### Option 2: GitHub Actions (Recommended)
