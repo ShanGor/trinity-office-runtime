@@ -516,6 +516,9 @@ check_libreoffice_bundle_completeness() {
     if [ ! -x "${install_root}/lib/libreoffice/program/javaldx" ]; then
         missing+=("lib/libreoffice/program/javaldx")
     fi
+    if [ ! -f "${install_root}/lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui" ]; then
+        missing+=("lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui")
+    fi
     if [ ! -f "${install_root}/share/java/hsqldb1.8.0.jar" ]; then
         missing+=("share/java/hsqldb1.8.0.jar")
     fi

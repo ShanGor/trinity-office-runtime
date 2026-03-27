@@ -10,7 +10,11 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 runtime_dir="${tmpdir}/runtime"
 output_file="${tmpdir}/completeness.out"
-mkdir -p "${runtime_dir}/bin" "${runtime_dir}/lib/libreoffice/program" "${runtime_dir}/share/java"
+mkdir -p \
+    "${runtime_dir}/bin" \
+    "${runtime_dir}/lib/libreoffice/program" \
+    "${runtime_dir}/lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui" \
+    "${runtime_dir}/share/java"
 
 # shellcheck source=/dev/null
 source "${INSTALL_SCRIPT}"
@@ -21,7 +25,12 @@ if check_libreoffice_bundle_completeness "${runtime_dir}" >"${output_file}" 2>&1
 fi
 
 missing_output="$(cat "${output_file}")"
-for expected in bin/soffice lib/libreoffice/program/javaldx share/java/hsqldb1.8.0.jar; do
+for expected in \
+    bin/soffice \
+    lib/libreoffice/program/javaldx \
+    lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui \
+    share/java/hsqldb1.8.0.jar
+do
     if [[ "${missing_output}" != *"${expected}"* ]]; then
         echo "Expected completeness output to mention missing ${expected}" >&2
         exit 1
@@ -29,6 +38,7 @@ for expected in bin/soffice lib/libreoffice/program/javaldx share/java/hsqldb1.8
 done
 
 touch "${runtime_dir}/share/java/hsqldb1.8.0.jar"
+touch "${runtime_dir}/lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui"
 cat > "${runtime_dir}/bin/soffice" << 'INNER'
 #!/bin/sh
 exit 0

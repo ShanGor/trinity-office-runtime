@@ -76,6 +76,8 @@ trinity-pptx exec python3 -m markitdown presentation.pptx
 ### `convert <input.pptx> [output.pdf]`
 
 Convert a PPTX file to PDF format.
+Relative input and output paths are resolved against the current working directory, or against `--work-dir` when that option is set.
+If bundled LibreOffice cannot complete a visual conversion, the wrapper falls back to a text-only PDF generated from extracted slide content so downstream preview still receives a PDF artifact.
 
 ```bash
 trinity-pptx convert slides.pptx
@@ -94,6 +96,8 @@ trinity-pptx extract presentation.pptx > content.md
 ### `thumbnail <input.pptx> [output.jpg]`
 
 Generate a thumbnail image from the first slide.
+Relative input and output paths are resolved against the current working directory, or against `--work-dir` when that option is set.
+If bundled LibreOffice cannot render slides directly, the wrapper first builds the same extracted-text PDF fallback and then renders the JPG from that PDF.
 
 ```bash
 trinity-pptx thumbnail deck.pptx
@@ -103,6 +107,7 @@ trinity-pptx thumbnail deck.pptx preview.jpg
 ### `create <script.js> [output.pptx]`
 
 Create a PPTX file from a JavaScript file using pptxgenjs.
+Relative input and output paths are resolved against the current working directory, or against `--work-dir` when that option is set.
 
 Example script (`my-presentation.js`):
 ```javascript

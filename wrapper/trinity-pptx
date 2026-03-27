@@ -17,6 +17,8 @@ export PATH="${RUNTIME_DIR}/bin:${PATH}"
 # Default settings
 USE_BWRAP=true
 BWRAP_OPTS=""
+CLI_BASE_DIR="$PWD"
+INPUT_DIR=""
 WORK_DIR=""
 VERBOSE=false
 
@@ -97,13 +99,34 @@ discover_node_path() {
     local prefix="${1:-/runtime}"
     local path
     local node_path=""
+    local root
+    local -a node_roots=(
+        "$RUNTIME_DIR/lib"
+        "$RUNTIME_DIR/usr/lib"
+        "$RUNTIME_DIR/rootfs/usr/local/lib"
+    )
+    local -a nodejs_dirs=(
+        "$RUNTIME_DIR/share/nodejs"
+        "$RUNTIME_DIR/usr/share/nodejs"
+        "$RUNTIME_DIR/rootfs/usr/share/nodejs"
+    )
 
-    while IFS= read -r path; do
-        if [ -n "$node_path" ]; then
-            node_path="${node_path}:"
+    for root in "${node_roots[@]}"; do
+        if [ ! -d "$root" ]; then
+            continue
         fi
-        node_path="${node_path}${prefix}${path#$RUNTIME_DIR}"
-    done < <(find -L "$RUNTIME_DIR/lib" -mindepth 1 -maxdepth 2 -type d -name node_modules | sort)
+
+        while IFS= read -r path; do
+            if [ -n "$node_path" ]; then
+                node_path="${node_path}:"
+            fi
+            node_path="${node_path}${prefix}${path#$RUNTIME_DIR}"
+        done < <(find -L "$root" -mindepth 1 -maxdepth 2 -type d -name node_modules | sort)
+    done
+
+    for path in "${nodejs_dirs[@]}"; do
+        node_path="$(append_path_entry "$node_path" "${prefix}${path#$RUNTIME_DIR}")"
+    done
 
     echo "$node_path"
 }
@@ -222,13 +245,27 @@ command_uses_libreoffice_rootfs() {
 rewrite_workdir_args() {
     local arg
 
-    if [ -z "$WORK_DIR" ]; then
+    if [ -z "$WORK_DIR" ] && [ -z "$INPUT_DIR" ]; then
         printf '%s\0' "$@"
         return
     fi
 
     for arg in "$@"; do
         case "$arg" in
+            /input)
+                if [ -n "$INPUT_DIR" ]; then
+                    printf '%s\0' "$INPUT_DIR"
+                else
+                    printf '%s\0' "$arg"
+                fi
+                ;;
+            /input/*)
+                if [ -n "$INPUT_DIR" ]; then
+                    printf '%s\0' "${INPUT_DIR}/${arg#/input/}"
+                else
+                    printf '%s\0' "$arg"
+                fi
+                ;;
             /work)
                 printf '%s\0' "$WORK_DIR"
                 ;;
@@ -240,6 +277,240 @@ rewrite_workdir_args() {
                 ;;
         esac
     done
+}
+
+resolve_cli_path() {
+    local path="$1"
+
+    case "$path" in
+        /*)
+            printf '%s\n' "$path"
+            ;;
+        *)
+            printf '%s/%s\n' "$CLI_BASE_DIR" "$path"
+            ;;
+    esac
+}
+
+normalize_existing_file_path() {
+    local path="$1"
+    local resolved_path
+    local resolved_dir
+
+    resolved_path="$(resolve_cli_path "$path")"
+    if [ ! -f "$resolved_path" ]; then
+        echo "Error: Input file not found: $path" >&2
+        exit 1
+    fi
+
+    resolved_dir="$(cd "$(dirname "$resolved_path")" && pwd)"
+    printf '%s/%s\n' "$resolved_dir" "$(basename "$resolved_path")"
+}
+
+normalize_output_path() {
+    local path="$1"
+    local resolved_path
+    local resolved_dir
+
+    resolved_path="$(resolve_cli_path "$path")"
+    resolved_dir="$(dirname "$resolved_path")"
+    if [ ! -d "$resolved_dir" ]; then
+        echo "Error: Output directory not found: $resolved_dir" >&2
+        exit 1
+    fi
+
+    resolved_dir="$(cd "$resolved_dir" && pwd)"
+    printf '%s/%s\n' "$resolved_dir" "$(basename "$resolved_path")"
+}
+
+render_text_pdf() {
+    local output_path="$1"
+    local source_name="$2"
+    local markdown_content="${3:-}"
+    local markdown_file
+    local render_status=0
+
+    markdown_file="$(mktemp "${TMPDIR:-/tmp}/trinity-pptx-markdown.XXXXXX")"
+    printf '%s' "$markdown_content" > "$markdown_file"
+
+    TEXT_PDF_OUTPUT="$output_path" \
+    TEXT_PDF_SOURCE="$source_name" \
+    TEXT_PDF_MARKDOWN_FILE="$markdown_file" \
+    python3 - <<'PY'
+import os
+import re
+import textwrap
+
+output_path = os.environ["TEXT_PDF_OUTPUT"]
+source_name = os.environ.get("TEXT_PDF_SOURCE", "presentation.pptx")
+markdown_file = os.environ["TEXT_PDF_MARKDOWN_FILE"]
+with open(markdown_file, "r", encoding="utf-8", errors="replace") as handle:
+    markdown = handle.read()
+
+def escape_pdf_text(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+def normalize_markdown(content: str) -> list[str]:
+    content = content.replace("\r\n", "\n").replace("\r", "\n")
+    content = re.sub(r"<!--\s*Slide number:\s*(\d+)\s*-->", r"\n\nSlide \1\n", content)
+    content = re.sub(r"!\[[^\]]*\]\([^)]+\)", "", content)
+
+    lines: list[str] = []
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        line = re.sub(r"^#{1,6}\s*", "", line)
+        line = re.sub(r"^\s*[-*]\s+", "- ", line)
+        if not line:
+            if lines and lines[-1] != "":
+                lines.append("")
+            continue
+        lines.append(line)
+
+    while lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+header_lines = [
+    "Trinity PPTX fallback preview",
+    f"Source: {source_name}",
+    "Visual PPTX-to-PDF conversion failed; this PDF contains extracted slide text.",
+    "",
+]
+
+body_lines = normalize_markdown(markdown)
+if body_lines:
+    logical_lines = header_lines + body_lines
+else:
+    logical_lines = header_lines + ["No extractable slide text was available."]
+
+wrapped_lines: list[str] = []
+for line in logical_lines:
+    if line == "":
+        wrapped_lines.append("")
+        continue
+    segments = textwrap.wrap(
+        line,
+        width=92,
+        replace_whitespace=False,
+        drop_whitespace=False,
+    )
+    wrapped_lines.extend(segments or [""])
+
+page_width = 612
+page_height = 792
+margin_x = 54
+top_y = 750
+bottom_margin = 54
+line_height = 14
+lines_per_page = max(1, int((top_y - bottom_margin) / line_height))
+pages = [
+    wrapped_lines[i : i + lines_per_page]
+    for i in range(0, len(wrapped_lines), lines_per_page)
+] or [["No extractable slide text was available."]]
+
+objects: list[bytes] = []
+
+def add_object(data: bytes | str) -> int:
+    if isinstance(data, str):
+        data = data.encode("latin-1", "replace")
+    objects.append(data)
+    return len(objects)
+
+font_obj = add_object("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+page_obj_indexes: list[int] = []
+
+for page_lines in pages:
+    stream_lines = ["BT", "/F1 11 Tf", "14 TL", f"{margin_x} {top_y} Td"]
+    for line in page_lines:
+        stream_lines.append(f"({escape_pdf_text(line)}) Tj")
+        stream_lines.append("T*")
+    stream_lines.append("ET")
+    stream = "\n".join(stream_lines).encode("latin-1", "replace")
+    content_obj = add_object(
+        b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream"
+    )
+    page_obj = add_object(
+        (
+            "<< /Type /Page /Parent PAGES_OBJ /MediaBox [0 0 "
+            f"{page_width} {page_height}] /Resources << /Font << /F1 "
+            f"{font_obj} 0 R >> >> /Contents {content_obj} 0 R >>"
+        )
+    )
+    page_obj_indexes.append(page_obj)
+
+pages_obj = add_object(
+    "<< /Type /Pages /Count "
+    f"{len(page_obj_indexes)} /Kids [{' '.join(f'{idx} 0 R' for idx in page_obj_indexes)}] >>"
+)
+catalog_obj = add_object(f"<< /Type /Catalog /Pages {pages_obj} 0 R >>")
+
+for index, data in enumerate(objects):
+    if b"PAGES_OBJ" in data:
+        objects[index] = data.replace(b"PAGES_OBJ", str(pages_obj).encode("ascii"))
+
+with open(output_path, "wb") as pdf:
+    pdf.write(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for number, data in enumerate(objects, start=1):
+        offsets.append(pdf.tell())
+        pdf.write(f"{number} 0 obj\n".encode("ascii"))
+        pdf.write(data)
+        if not data.endswith(b"\n"):
+            pdf.write(b"\n")
+        pdf.write(b"endobj\n")
+    xref_offset = pdf.tell()
+    pdf.write(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    pdf.write(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.write(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.write(
+        (
+            f"trailer\n<< /Size {len(objects) + 1} /Root {catalog_obj} 0 R >>\n"
+            f"startxref\n{xref_offset}\n%%EOF\n"
+        ).encode("ascii")
+    )
+PY
+    render_status=$?
+    rm -f "$markdown_file"
+    return "$render_status"
+}
+
+generate_fallback_pdf() {
+    local input_name="$1"
+    local output_path="$2"
+    local markdown_content=""
+
+    if markdown_content="$(run_sandboxed python3 -m markitdown "/input/$input_name" 2>/dev/null)"; then
+        :
+    else
+        markdown_content=""
+    fi
+
+    render_text_pdf "$output_path" "$input_name" "$markdown_content"
+}
+
+generate_pdf_preview() {
+    local input_name="$1"
+    local output_path="$2"
+    local visual_output="${WORK_DIR}/${input_name%.pptx}.pdf"
+    local visual_status=0
+
+    rm -f "$visual_output"
+    if run_sandboxed soffice --headless --convert-to pdf --outdir /work "/input/$input_name"; then
+        visual_status=0
+    else
+        visual_status=$?
+    fi
+
+    if [ -f "$visual_output" ]; then
+        if [ "$visual_output" != "$output_path" ]; then
+            mv "$visual_output" "$output_path"
+        fi
+        return 0
+    fi
+
+    log "LibreOffice conversion failed with status ${visual_status}; generating extracted-text PDF fallback"
+    generate_fallback_pdf "$input_name" "$output_path"
 }
 
 # Setup environment variables for LibreOffice
@@ -343,6 +614,11 @@ build_libreoffice_rootfs_bwrap_cmd() {
         cmd="${cmd} --setenv WORKDIR /work"
     fi
 
+    if [ -n "$INPUT_DIR" ] && [ -d "$INPUT_DIR" ]; then
+        cmd="${cmd} --ro-bind ${INPUT_DIR} /input"
+        cmd="${cmd} --setenv INPUTDIR /input"
+    fi
+
     cmd="${cmd} --setenv HOME /tmp/home"
     cmd="${cmd} --setenv PATH /usr/bin:/bin"
     cmd="${cmd} --setenv SAL_DISABLESKIA 1"
@@ -395,6 +671,11 @@ build_bwrap_cmd() {
         cmd="${cmd} --bind ${WORK_DIR} /work"
         cmd="${cmd} --setenv WORKDIR /work"
     fi
+
+    if [ -n "$INPUT_DIR" ] && [ -d "$INPUT_DIR" ]; then
+        cmd="${cmd} --ro-bind ${INPUT_DIR} /input"
+        cmd="${cmd} --setenv INPUTDIR /input"
+    fi
     
     # Environment variables
     cmd="${cmd} $(setup_env "$tool_cmd")"
@@ -407,8 +688,8 @@ build_bwrap_cmd() {
     echo "$cmd"
 }
 
-# Execute command in sandbox
-exec_sandboxed() {
+# Run a command in the sandbox and return its status to the caller.
+run_sandboxed() {
     local cmd="$1"
     shift
     local runtime_home="${TMPDIR:-/tmp}/trinity-pptx-home"
@@ -437,32 +718,33 @@ exec_sandboxed() {
 
         if command_uses_libreoffice_rootfs "$cmd"; then
             if [ -n "$WORK_DIR" ]; then
-                exec bwrap $bwrap_args --chdir /work /usr/bin/$cmd "$@"
+                bwrap $bwrap_args --chdir /work /usr/bin/$cmd "$@"
             else
-                exec bwrap $bwrap_args /usr/bin/$cmd "$@"
+                bwrap $bwrap_args /usr/bin/$cmd "$@"
             fi
+            return
         fi
         
         # Change to work directory if specified
         if [ -n "$WORK_DIR" ]; then
-            exec bwrap $bwrap_args --chdir /work /runtime/bin/$cmd "$@"
+            bwrap $bwrap_args --chdir /work /runtime/bin/$cmd "$@"
         else
-            exec bwrap $bwrap_args /runtime/bin/$cmd "$@"
+            bwrap $bwrap_args /runtime/bin/$cmd "$@"
         fi
     else
         log "Running without sandbox"
         mkdir -p "$runtime_home"
         runtime_pythonpath="$(discover_pythonpath "$RUNTIME_DIR")"
         runtime_nodepath="$(discover_node_path "$RUNTIME_DIR")"
+        runtime_library_path="$(discover_library_path "$RUNTIME_DIR")"
+        if [ -n "$runtime_library_path" ]; then
+            runtime_library_path="${runtime_library_path}:/lib:/lib64"
+        else
+            runtime_library_path="$RUNTIME_DIR/lib:/lib:/lib64"
+        fi
         if command_needs_libreoffice_env "$cmd"; then
-            runtime_library_path="$(discover_library_path "$RUNTIME_DIR")"
             runtime_library_path="$(append_path_entry "$runtime_library_path" "$(discover_libreoffice_program_path "$RUNTIME_DIR")" 0)"
             runtime_dri_driver_path="$(discover_dri_driver_path "$RUNTIME_DIR")"
-            if [ -n "$runtime_library_path" ]; then
-                runtime_library_path="${runtime_library_path}:/lib:/lib64"
-            else
-                runtime_library_path="$RUNTIME_DIR/lib:/lib:/lib64"
-            fi
         fi
         if [ -n "$WORK_DIR" ]; then
             mapfile -d '' -t rewritten_args < <(rewrite_workdir_args "$@")
@@ -482,13 +764,14 @@ exec_sandboxed() {
                     URE_BOOTSTRAP="vnd.sun.star.pathname:${RUNTIME_DIR}/lib/libreoffice/program/fundamentalrc" \
                     PYTHONPATH="$runtime_pythonpath" \
                     NODE_PATH="$runtime_nodepath" \
-                    exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+                    "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
                 else
                     HOME="$runtime_home" \
                     PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
+                    LD_LIBRARY_PATH="$runtime_library_path" \
                     PYTHONPATH="$runtime_pythonpath" \
                     NODE_PATH="$runtime_nodepath" \
-                    exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+                    "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
                 fi
             )
         else
@@ -502,103 +785,118 @@ exec_sandboxed() {
                 URE_BOOTSTRAP="vnd.sun.star.pathname:${RUNTIME_DIR}/lib/libreoffice/program/fundamentalrc" \
                 PYTHONPATH="$runtime_pythonpath" \
                 NODE_PATH="$runtime_nodepath" \
-                exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+                "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
             else
                 HOME="$runtime_home" \
                 PATH="$RUNTIME_DIR/bin:/usr/bin:/bin" \
+                LD_LIBRARY_PATH="$runtime_library_path" \
                 PYTHONPATH="$runtime_pythonpath" \
                 NODE_PATH="$runtime_nodepath" \
-                exec "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
+                "$RUNTIME_DIR/bin/$cmd" "${rewritten_args[@]}"
             fi
         fi
     fi
 }
 
+exec_sandboxed() {
+    run_sandboxed "$@"
+    exit $?
+}
+
 # Convert PPTX to PDF
 convert_pptx() {
     local input="$1"
-    local output="${2:-${input%.pptx}.pdf}"
+    local input_path
+    local output
+    local output_path
     
-    log "Converting: $input -> $output"
-    
-    if [ ! -f "$input" ]; then
-        echo "Error: Input file not found: $input" >&2
-        exit 1
+    input_path="$(normalize_existing_file_path "$input")"
+    if [ $# -ge 2 ]; then
+        output="$2"
+        output_path="$(normalize_output_path "$output")"
+    else
+        output_path="${input_path%.pptx}.pdf"
+        output="$(basename "$output_path")"
     fi
+
+    log "Converting: $input_path -> $output_path"
     
-    # Set work directory to input file's directory
-    WORK_DIR="$(cd "$(dirname "$input")" && pwd)"
+    INPUT_DIR="$(cd "$(dirname "$input_path")" && pwd)"
+    WORK_DIR="$(cd "$(dirname "$output_path")" && pwd)"
     local input_name
-    input_name=$(basename "$input")
-    local output_name
-    output_name=$(basename "$output")
-    
-    exec_sandboxed soffice --headless --convert-to pdf --outdir /work "/work/$input_name"
-    
-    # Rename if output name differs
-    if [ "$input_name" != "${output_name%.pdf}.pptx" ]; then
-        mv "$WORK_DIR/${input_name%.pptx}.pdf" "$WORK_DIR/$output_name"
-    fi
+    input_name=$(basename "$input_path")
+
+    generate_pdf_preview "$input_name" "$output_path"
 }
 
 # Extract text from PPTX
 extract_text() {
     local input="$1"
+    local input_path
     
-    log "Extracting text from: $input"
-    
-    if [ ! -f "$input" ]; then
-        echo "Error: Input file not found: $input" >&2
-        exit 1
-    fi
-    
-    WORK_DIR="$(cd "$(dirname "$input")" && pwd)"
+    input_path="$(normalize_existing_file_path "$input")"
+    log "Extracting text from: $input_path"
+
+    INPUT_DIR="$(cd "$(dirname "$input_path")" && pwd)"
+    WORK_DIR="$INPUT_DIR"
     local input_name
-    input_name=$(basename "$input")
+    input_name=$(basename "$input_path")
     
-    exec_sandboxed python3 -m markitdown "/work/$input_name"
+    run_sandboxed python3 -m markitdown "/input/$input_name"
 }
 
 # Generate thumbnail
 generate_thumbnail() {
     local input="$1"
-    local output="${2:-${input%.pptx}.jpg}"
+    local input_path
+    local output_path
     
-    log "Generating thumbnail: $input -> $output"
-    
-    if [ ! -f "$input" ]; then
-        echo "Error: Input file not found: $input" >&2
-        exit 1
+    input_path="$(normalize_existing_file_path "$input")"
+    if [ $# -ge 2 ]; then
+        output_path="$(normalize_output_path "$2")"
+    else
+        output_path="${input_path%.pptx}.jpg"
     fi
-    
-    WORK_DIR="$(cd "$(dirname "$input")" && pwd)"
+
+    log "Generating thumbnail: $input_path -> $output_path"
+
+    INPUT_DIR="$(cd "$(dirname "$input_path")" && pwd)"
+    WORK_DIR="$(cd "$(dirname "$output_path")" && pwd)"
     local input_name
-    input_name=$(basename "$input")
+    input_name=$(basename "$input_path")
     local output_name
-    output_name=$(basename "$output")
+    output_name=$(basename "$output_path")
+    local intermediate_pdf="${WORK_DIR}/${input_name%.pptx}.pdf"
     
     # Convert to PDF first, then to image
-    exec_sandboxed soffice --headless --convert-to pdf --outdir /tmp "/work/$input_name"
-    exec_sandboxed pdftoppm -jpeg -r 150 -f 1 -l 1 "/tmp/${input_name%.pptx}.pdf" "/work/${output_name%.jpg}"
+    generate_pdf_preview "$input_name" "$intermediate_pdf"
+    run_sandboxed pdftoppm -jpeg -singlefile -r 150 -f 1 -l 1 "/work/${input_name%.pptx}.pdf" "/work/${output_name%.jpg}"
+    rm -f "$intermediate_pdf"
 }
 
 # Create PPTX from JavaScript
 create_pptx() {
     local script="$1"
-    local output="${2:-output.pptx}"
+    local script_path
+    local output_path
     
-    log "Creating PPTX from: $script -> $output"
-    
-    if [ ! -f "$script" ]; then
-        echo "Error: Script file not found: $script" >&2
-        exit 1
+    script_path="$(normalize_existing_file_path "$script")"
+    if [ $# -ge 2 ]; then
+        output_path="$(normalize_output_path "$2")"
+    else
+        output_path="$(normalize_output_path "output.pptx")"
     fi
-    
-    WORK_DIR="$(cd "$(dirname "$script")" && pwd)"
+
+    log "Creating PPTX from: $script_path -> $output_path"
+
+    INPUT_DIR="$(cd "$(dirname "$script_path")" && pwd)"
+    WORK_DIR="$(cd "$(dirname "$output_path")" && pwd)"
     local script_name
-    script_name=$(basename "$script")
+    script_name=$(basename "$script_path")
+    local output_name
+    output_name=$(basename "$output_path")
     
-    exec_sandboxed node "/work/$script_name" "/work/$output"
+    run_sandboxed node "/input/$script_name" "/work/$output_name"
 }
 
 # Main execution
@@ -628,6 +926,7 @@ main() {
                 shift
                 ;;
             --work-dir)
+                CLI_BASE_DIR="$2"
                 WORK_DIR="$2"
                 shift 2
                 ;;
@@ -651,6 +950,11 @@ main() {
         echo "Error: Runtime directory not found or invalid: $RUNTIME_DIR" >&2
         echo "Set TRINITY_PPTX_RUNTIME to the correct path." >&2
         exit 1
+    fi
+
+    CLI_BASE_DIR="$(cd "$CLI_BASE_DIR" && pwd)"
+    if [ -n "$WORK_DIR" ]; then
+        WORK_DIR="$CLI_BASE_DIR"
     fi
     
     # Execute command

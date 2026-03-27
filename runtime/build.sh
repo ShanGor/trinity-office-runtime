@@ -52,12 +52,42 @@ path_mount_options() {
     fi
 }
 
+path_filesystem_type() {
+    local path="$1"
+    local probe="$path"
+
+    while [ ! -e "$probe" ] && [ "$probe" != "/" ]; do
+        probe="$(dirname "$probe")"
+    done
+
+    if command -v findmnt >/dev/null 2>&1; then
+        findmnt -T "$probe" -no FSTYPE 2>/dev/null || true
+        return 0
+    fi
+
+    df -PT "$probe" 2>/dev/null | awk 'NR==2 {print $2}'
+}
+
 build_dir_supports_rootfs() {
     local options
+    local filesystem_type
 
     options="$(path_mount_options "$1")"
+    filesystem_type="$(path_filesystem_type "$1")"
     case ",${options}," in
         *,nodev,*|*,noexec,*)
+            return 1
+            ;;
+    esac
+
+    case "$filesystem_type" in
+        9p|drvfs)
+            return 1
+            ;;
+    esac
+
+    case ",${options}," in
+        *,aname=drvfs,*)
             return 1
             ;;
         *)
@@ -309,6 +339,11 @@ verify_runtime_bundle() {
         exit 1
     fi
 
+    if [ ! -f "$DIST_DIR/lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui" ]; then
+        echo "Missing bundled LibreOffice Impress UI config: lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui"
+        exit 1
+    fi
+
     if [ ! -f "$DIST_DIR/share/java/hsqldb1.8.0.jar" ]; then
         echo "Missing bundled LibreOffice Java dependency: share/java/hsqldb1.8.0.jar"
         exit 1
@@ -429,15 +464,18 @@ EOF
         curl \
         gnupg
 
-    # Add Node.js repository
-    run_in_chroot "$ROOTFS" bash -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash -"
-
     # Install all packages.
+    # Jammy's *-nogui LibreOffice packages omit the Impress UI resources that
+    # headless PPTX conversion still loads at startup, so install the full
+    # Impress package set here even though we run soffice in headless mode.
+    # Use Ubuntu's bundled Node.js packages to keep the build self-contained
+    # on restricted networks instead of depending on the external NodeSource
+    # repository during runtime assembly.
     # libreoffice-sdbc-hsqldb stays explicit because libreoffice-base-drivers
     # only recommends it, and this build intentionally uses
     # --no-install-recommends to keep the bundle size down.
     run_in_chroot "$ROOTFS" apt-get install -y --no-install-recommends \
-        libreoffice-nogui \
+        libreoffice-impress \
         libreoffice-java-common \
         libreoffice-sdbc-hsqldb \
         libegl1 \
@@ -451,6 +489,7 @@ EOF
         python3-pip \
         python3-venv \
         nodejs \
+        npm \
         fonts-liberation \
         fonts-dejavu-core \
         fonts-freefont-ttf
