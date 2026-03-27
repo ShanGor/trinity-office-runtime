@@ -221,14 +221,29 @@ verify_runtime_bundle() {
         exit 1
     fi
 
+    if [ ! -x "$DIST_DIR/lib/libreoffice/program/javaldx" ]; then
+        echo "Missing bundled LibreOffice javaldx helper"
+        exit 1
+    fi
+
+    if [ ! -f "$DIST_DIR/share/java/hsqldb1.8.0.jar" ]; then
+        echo "Missing bundled LibreOffice Java dependency: share/java/hsqldb1.8.0.jar"
+        exit 1
+    fi
+
     TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
         python3 -c "import markitdown, PIL; print(markitdown.__file__)" >/dev/null
 
     TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
         node -e "require('pptxgenjs')"
 
+    env -u DISPLAY -u WAYLAND_DISPLAY -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS \
+        TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
+        soffice --headless --version >/dev/null
+
     if bwrap_is_usable; then
-        "$DIST_DIR/trinity-pptx" exec soffice --headless --version >/dev/null
+        env -u DISPLAY -u WAYLAND_DISPLAY -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS \
+            "$DIST_DIR/trinity-pptx" exec soffice --headless --version >/dev/null
     elif command -v bwrap >/dev/null 2>&1; then
         echo "Skipping sandboxed soffice verification because bubblewrap is installed but unusable in this environment"
     fi
@@ -318,10 +333,8 @@ EOF
 
     # Install all packages
     chroot "$ROOTFS" apt-get install -y --no-install-recommends \
-        libreoffice-common \
-        libreoffice-writer \
-        libreoffice-calc \
-        libreoffice-impress \
+        libreoffice-nogui \
+        libreoffice-java-common \
         libegl1 \
         libgbm1 \
         libgl1 \
@@ -417,4 +430,6 @@ EOF
     echo "Size: $(du -h "trinity-pptx-runtime-linux-${ARCH_NAME}.tar.gz" | cut -f1)"
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

@@ -345,7 +345,7 @@ extract_tarball_into_install_dir() {
 
     prepare_install_dir
     log_info "Extracting..."
-    tar xzf "$tarball" -C "$INSTALL_DIR"
+    tar xzf "$tarball" --no-same-owner -C "$INSTALL_DIR"
     install_runtime_wrapper "${INSTALL_DIR}/trinity-pptx"
     repair_libreoffice_bundle_paths "${INSTALL_DIR}"
     repair_libreoffice_program_compat_symlinks "${INSTALL_DIR}"
@@ -490,6 +490,30 @@ bwrap_is_usable() {
     bwrap --ro-bind / / --dev /dev --proc /proc /bin/true >/dev/null 2>&1
 }
 
+check_libreoffice_bundle_completeness() {
+    local install_root="$1"
+    local missing=()
+
+    if [ ! -x "${install_root}/bin/soffice" ]; then
+        missing+=("bin/soffice")
+    fi
+    if [ ! -x "${install_root}/lib/libreoffice/program/javaldx" ]; then
+        missing+=("lib/libreoffice/program/javaldx")
+    fi
+    if [ ! -f "${install_root}/share/java/hsqldb1.8.0.jar" ]; then
+        missing+=("share/java/hsqldb1.8.0.jar")
+    fi
+
+    if [ "${#missing[@]}" -ne 0 ]; then
+        log_error "Runtime verification failed: installed LibreOffice bundle is incomplete"
+        log_error "Missing bundled files: ${missing[*]}"
+        log_error "Rebuild and republish the runtime package with the updated LibreOffice package set before reinstalling."
+        return 1
+    fi
+
+    return 0
+}
+
 # Update shell configuration
 update_shell_config() {
     local shell_rc=""
@@ -550,6 +574,10 @@ verify_installation() {
 
     if [ ! -x "${INSTALL_DIR}/bin/soffice" ]; then
         log_error "Runtime verification failed: bundled soffice launcher is missing or not executable"
+        exit 1
+    fi
+
+    if ! check_libreoffice_bundle_completeness "${INSTALL_DIR}"; then
         exit 1
     fi
 
