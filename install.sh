@@ -14,6 +14,7 @@ INSTALL_DIR="${HOME}/.local/share/trinity-pptx-runtime"
 BIN_DIR="${HOME}/.local/bin"
 VERSION="${VERSION:-latest}"
 SOURCE_MODE="release"
+LOCAL_TARBALL=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -121,6 +122,7 @@ repair_libreoffice_bundle_paths() {
     local program_dir="${install_root}/lib/libreoffice/program"
     local fundamental_rc="${program_dir}/fundamentalrc"
     local soffice_rc="${program_dir}/sofficerc"
+    local bootstrap_rc="${program_dir}/bootstraprc"
 
     if [ ! -d "$program_dir" ]; then
         return 0
@@ -129,7 +131,8 @@ repair_libreoffice_bundle_paths() {
     if [ -f "$fundamental_rc" ]; then
         log_info "Repairing LibreOffice bundle metadata for portable runtime paths..."
         sed -i \
-            -e 's|^BRAND_BASE_DIR=file:///usr/lib/libreoffice$|BRAND_BASE_DIR=file://${ORIGIN}/..|' \
+            -e 's|^BRAND_BASE_DIR=file:///usr/lib/libreoffice$|BRAND_BASE_DIR=${ORIGIN}/..|' \
+            -e 's|^BRAND_BASE_DIR=file://\${ORIGIN}|BRAND_BASE_DIR=${ORIGIN}|' \
             -e 's|file:///etc/libreoffice/registry|file://${ORIGIN}/../../../etc/libreoffice/registry|g' \
             -e 's|file:///usr/share/java/hsqldb1.8.0.jar|file://${ORIGIN}/../../../share/java/hsqldb1.8.0.jar|g' \
             "$fundamental_rc"
@@ -139,6 +142,13 @@ repair_libreoffice_bundle_paths() {
         sed -i \
             -e 's|file:///etc/libreoffice/sofficerc|file://${ORIGIN}/../../../etc/libreoffice/sofficerc|g' \
             "$soffice_rc"
+    fi
+
+    if [ -f "$bootstrap_rc" ]; then
+        sed -i \
+            -e 's|^InstallMode=.*|InstallMode=install|' \
+            -e 's|^UserInstallation=.*|UserInstallation=${ORIGIN}/../../..|' \
+            "$bootstrap_rc"
     fi
 }
 
@@ -174,6 +184,19 @@ repair_libreoffice_program_compat_symlinks() {
 
             ln -s "../libreoffice/program/${base}" "$dst"
             repaired="1"
+        done
+
+        for subdir in services types; do
+            if [ -d "${program_dir}/${subdir}" ]; then
+                dst="${arch_dir}/${subdir}"
+                if [ -L "$dst" ] && [ ! -e "$dst" ]; then
+                    rm -f "$dst"
+                fi
+                if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+                    ln -s "../libreoffice/program/${subdir}" "$dst"
+                    repaired="1"
+                fi
+            fi
         done
     done < <(find "${install_root}/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)
 
@@ -334,6 +357,19 @@ install_from_release() {
     local download_url
     local temp_dir
     local tarball
+
+    if [ -n "$LOCAL_TARBALL" ]; then
+        if [ ! -f "$LOCAL_TARBALL" ]; then
+            log_error "Local tarball not found: ${LOCAL_TARBALL}"
+            exit 1
+        fi
+        log_info "Detected platform: ${os}-${arch}"
+        log_info "Installing from local tarball: ${LOCAL_TARBALL}"
+        extract_tarball_into_install_dir "$LOCAL_TARBALL"
+        create_bin_symlink
+        log_success "Installation complete!"
+        return
+    fi
 
     download_url=$(get_download_url "$VERSION" "$arch" "$os")
     temp_dir=$(mktemp -d)
@@ -515,6 +551,10 @@ main() {
                 SOURCE_MODE="release"
                 shift
                 ;;
+            --tarball)
+                LOCAL_TARBALL="$2"
+                shift 2
+                ;;
             --help)
                 echo "Usage: $0 [OPTIONS]"
                 echo ""
@@ -522,6 +562,7 @@ main() {
                 echo "  --version <ver>      Install specific version (default: latest)"
                 echo "  --install-dir <dir>  Installation directory (default: ~/.local/share/trinity-pptx-runtime)"
                 echo "  --bin-dir <dir>      Binary symlink directory (default: ~/.local/bin)"
+                echo "  --tarball <path>     Install from local tarball instead of downloading"
                 echo "  --local              Install from an already-built local artifact"
                 echo "  --release            Install from GitHub release (default)"
                 echo "  --help               Show this help message"

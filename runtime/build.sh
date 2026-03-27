@@ -25,10 +25,12 @@ repair_libreoffice_bundle_paths() {
     local program_dir="$dist_root/lib/libreoffice/program"
     local fundamental_rc="$program_dir/fundamentalrc"
     local soffice_rc="$program_dir/sofficerc"
+    local bootstrap_rc="$program_dir/bootstraprc"
 
     if [ -f "$fundamental_rc" ]; then
         sed -i \
-            -e 's|^BRAND_BASE_DIR=file:///usr/lib/libreoffice$|BRAND_BASE_DIR=file://${ORIGIN}/..|' \
+            -e 's|^BRAND_BASE_DIR=file:///usr/lib/libreoffice$|BRAND_BASE_DIR=${ORIGIN}/..|' \
+            -e 's|^BRAND_BASE_DIR=file://\${ORIGIN}|BRAND_BASE_DIR=${ORIGIN}|' \
             -e 's|file:///etc/libreoffice/registry|file://${ORIGIN}/../../../etc/libreoffice/registry|g' \
             -e 's|file:///usr/share/java/hsqldb1.8.0.jar|file://${ORIGIN}/../../../share/java/hsqldb1.8.0.jar|g' \
             "$fundamental_rc"
@@ -38,6 +40,13 @@ repair_libreoffice_bundle_paths() {
         sed -i \
             -e 's|file:///etc/libreoffice/sofficerc|file://${ORIGIN}/../../../etc/libreoffice/sofficerc|g' \
             "$soffice_rc"
+    fi
+
+    if [ -f "$bootstrap_rc" ]; then
+        sed -i \
+            -e 's|^InstallMode=.*|InstallMode=install|' \
+            -e 's|^UserInstallation=.*|UserInstallation=${ORIGIN}/../../..|' \
+            "$bootstrap_rc"
     fi
 }
 
@@ -71,6 +80,18 @@ repair_libreoffice_program_compat_symlinks() {
             fi
 
             ln -s "../libreoffice/program/${base}" "$dst"
+        done
+
+        for subdir in services types; do
+            if [ -d "${program_dir}/${subdir}" ]; then
+                dst="${arch_dir}/${subdir}"
+                if [ -L "$dst" ] && [ ! -e "$dst" ]; then
+                    rm -f "$dst"
+                fi
+                if [ ! -e "$dst" ] && [ ! -L "$dst" ]; then
+                    ln -s "../libreoffice/program/${subdir}" "$dst"
+                fi
+            fi
         done
     done < <(find "$dist_root/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)
 }

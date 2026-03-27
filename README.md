@@ -21,12 +21,21 @@ All tools run inside a [bubblewrap](https://github.com/containers/bubblewrap) sa
 # Download and run the installer
 curl -fsSL https://raw.githubusercontent.com/ShanGor/trinity-pptx-runtime/main/install.sh | bash
 
-# Or download manually
+# Or with a pre-downloaded tarball (useful when GitHub download is slow)
 curl -LO https://github.com/ShanGor/trinity-pptx-runtime/releases/latest/download/trinity-pptx-runtime-linux-x64.tar.gz
-tar xzf trinity-pptx-runtime-linux-x64.tar.gz -C ~/.local/share/trinity-pptx-runtime
-ln -sf "$HOME/.local/share/trinity-pptx-runtime/trinity-pptx" "$HOME/.local/bin/trinity-pptx"
-export PATH="$HOME/.local/bin:$PATH"
+./install.sh --tarball trinity-pptx-runtime-linux-x64.tar.gz
 ```
+
+#### Installer Options
+
+| Option | Description |
+|--------|-------------|
+| `--version <ver>` | Install specific version (default: latest) |
+| `--install-dir <dir>` | Installation directory (default: ~/.local/share/trinity-pptx-runtime) |
+| `--bin-dir <dir>` | Binary symlink directory (default: ~/.local/bin) |
+| `--tarball <path>` | Install from local tarball instead of downloading |
+| `--local` | Install from an already-built local artifact |
+| `--release` | Install from GitHub release (default) |
 
 `install.sh` downloads the GitHub release by default. If you have already built a local runtime artifact from a source checkout, use `--local` to install that artifact explicitly instead.
 When `install.sh` is run from a source checkout, it installs the checked-out `wrapper/trinity-pptx` over the downloaded bundle so wrapper fixes apply immediately. Standalone installs still repair older downloaded wrappers before runtime verification, including the extra sandbox mounts and bundled-library search paths needed by LibreOffice.
