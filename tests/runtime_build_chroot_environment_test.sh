@@ -29,6 +29,7 @@ chroot() {
 
 rootfs="/tmp/trinity-runtime-root"
 PIP_INDEX_URL="https://mirror.example.com/simple"
+NPM_REPO="https://registry.example.com"
 
 prepare_chroot_environment "$rootfs"
 run_in_chroot "$rootfs" apt-get update
@@ -52,6 +53,8 @@ for expected in \
     "DEBIAN_FRONTEND=noninteractive" \
     "PIP_DISABLE_PIP_VERSION_CHECK=1" \
     "PIP_INDEX_URL=${PIP_INDEX_URL}" \
+    "NPM_CONFIG_REGISTRY=${NPM_REPO}" \
+    "npm_config_registry=${NPM_REPO}" \
     "apt-get update"
 do
     if ! grep -F "$expected" "$calls_file" >/dev/null; then

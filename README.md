@@ -19,6 +19,7 @@ All tools run inside a [bubblewrap](https://github.com/containers/bubblewrap) sa
 ```bash
 export UBUNTU_REPO=http://mirrors.aliyun.com/ubuntu
 export PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+export NPM_REPO=https://registry.npmmirror.org
 bash runtime/build.sh
 ```
 
@@ -179,8 +180,8 @@ sudo ./build.sh
 **What the build script does:**
 1. Creates a minimal Ubuntu rootfs using `debootstrap`
 2. Installs required packages (LibreOffice, Python, Node.js, Poppler, fonts)
-3. Installs Python packages (markitdown[pptx], Pillow) into the bundled runtime
-4. Installs Node.js packages (pptxgenjs)
+3. Installs Python packages (the `markitdown` CLI via `markitdown-no-magika[pptx]`, plus Pillow) into the bundled runtime
+4. Installs Node.js packages (`pptxgenjs@3.12.0`, pinned for Ubuntu 22.04's bundled Node.js runtime)
 5. Packages both `/usr` and `/usr/local` runtime assets needed by the tools
 6. Verifies the packaged artifact can import `markitdown` and `pptxgenjs`, and when `bwrap` is usable also verifies sandboxed `soffice --headless --version`
 7. Optimizes by removing unnecessary files (docs, man pages, caches)

@@ -147,9 +147,23 @@ fonts-wqy-zenhei
 EOF
 }
 
+runtime_python_packages() {
+    cat <<'EOF'
+markitdown-no-magika[pptx]==0.1.2
+Pillow
+EOF
+}
+
+runtime_node_packages() {
+    cat <<'EOF'
+pptxgenjs@3.12.0
+EOF
+}
+
 run_in_chroot() {
     local rootfs="$1"
     local passthrough_var=""
+    local npm_registry=""
     local -a env_vars=(
         HOME=/root
         PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
@@ -180,6 +194,14 @@ run_in_chroot() {
             env_vars+=("${passthrough_var}=${!passthrough_var}")
         fi
     done
+
+    npm_registry="${NPM_CONFIG_REGISTRY:-${npm_config_registry:-${NPM_REPO:-}}}"
+    if [ -n "$npm_registry" ]; then
+        env_vars+=(
+            "NPM_CONFIG_REGISTRY=${npm_registry}"
+            "npm_config_registry=${npm_registry}"
+        )
+    fi
 
     chroot "$rootfs" /usr/bin/env "${env_vars[@]}" "$@"
 }
@@ -416,6 +438,8 @@ bwrap_is_usable() {
 main() {
     local preferred_build_dir="${TRINITY_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
     local -a runtime_packages=()
+    local -a python_packages=()
+    local -a node_packages=()
 
     DIST_DIR="${TRINITY_DIST_DIR:-$DEFAULT_DIST_DIR}"
     BUILD_DIR="$(choose_build_dir "$preferred_build_dir")"
@@ -514,18 +538,25 @@ EOF
     # Using --target ensures the package lands inside the runtime bundle. We also
     # keep packaging logic tolerant of dependencies that still install into
     # /usr/local on future distro or toolchain changes.
+    # Use the no-magika MarkItDown distribution here because the upstream
+    # magika/onnxruntime stack has started crashing during bundled runtime
+    # verification on GitHub Actions, while PPTX extraction only needs the
+    # core MarkItDown CLI/API.
     echo "Installing Python packages..."
     run_in_chroot "$ROOTFS" mkdir -p /usr/lib/python3/dist-packages
+    mapfile -t python_packages < <(runtime_python_packages)
     run_in_chroot "$ROOTFS" pip3 install --no-cache-dir \
         --retries "${PIP_RETRIES:-10}" \
         --timeout "${PIP_TIMEOUT:-300}" \
         --target /usr/lib/python3/dist-packages \
-        markitdown[pptx] \
-        Pillow
+        "${python_packages[@]}"
 
     # Install Node.js packages globally
+    # Jammy ships Node 12, so keep pptxgenjs on the last pre-4.x line that does
+    # not pull dependencies requiring Node >=16.
     echo "Installing Node.js packages..."
-    run_in_chroot "$ROOTFS" npm install -g pptxgenjs
+    mapfile -t node_packages < <(runtime_node_packages)
+    run_in_chroot "$ROOTFS" npm install -g "${node_packages[@]}"
 
     cleanup_chroot_environment "$ROOTFS"
     trap - EXIT
