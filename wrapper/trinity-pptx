@@ -11,9 +11,6 @@ SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 RUNTIME_DIR="${SCRIPT_DIR}"
 VERSION_FILE="${RUNTIME_DIR}/VERSION"
 
-# Add runtime bin directory to PATH for internal commands
-export PATH="${RUNTIME_DIR}/bin:${PATH}"
-
 # Default settings
 USE_BWRAP=true
 BWRAP_OPTS=""
@@ -73,6 +70,10 @@ log() {
     fi
 }
 
+run_host_find() {
+    env -u LD_LIBRARY_PATH -u LD_PRELOAD -u LD_AUDIT PATH="/usr/bin:/bin" find "$@"
+}
+
 run_markitdown() {
     local input_path="$1"
     local script='
@@ -112,13 +113,16 @@ discover_pythonpath() {
     local prefix="${1:-/runtime}"
     local path
     local python_path=""
+    local paths=""
 
+    paths="$(run_host_find -L "$RUNTIME_DIR/lib" -mindepth 2 -maxdepth 2 -type d \( -name dist-packages -o -name site-packages \) 2>/dev/null || true)"
     while IFS= read -r path; do
+        [ -n "$path" ] || continue
         if [ -n "$python_path" ]; then
             python_path="${python_path}:"
         fi
         python_path="${python_path}${prefix}${path#$RUNTIME_DIR}"
-    done < <(find -L "$RUNTIME_DIR/lib" -mindepth 2 -maxdepth 2 -type d \( -name dist-packages -o -name site-packages \) | sort)
+    done <<< "$paths"
 
     echo "$python_path"
 }
@@ -128,6 +132,7 @@ discover_node_path() {
     local path
     local node_path=""
     local root
+    local paths=""
     local -a node_roots=(
         "$RUNTIME_DIR/lib"
         "$RUNTIME_DIR/usr/lib"
@@ -144,12 +149,14 @@ discover_node_path() {
             continue
         fi
 
+        paths="$(run_host_find -L "$root" -mindepth 1 -maxdepth 2 -type d -name node_modules 2>/dev/null || true)"
         while IFS= read -r path; do
+            [ -n "$path" ] || continue
             if [ -n "$node_path" ]; then
                 node_path="${node_path}:"
             fi
             node_path="${node_path}${prefix}${path#$RUNTIME_DIR}"
-        done < <(find -L "$root" -mindepth 1 -maxdepth 2 -type d -name node_modules | sort)
+        done <<< "$paths"
     done
 
     for path in "${nodejs_dirs[@]}"; do
@@ -194,6 +201,7 @@ discover_library_path() {
     local library_path=""
     local dir
     local root
+    local paths=""
     local -a library_roots=("$RUNTIME_DIR/lib" "$RUNTIME_DIR/usr/lib")
 
     # Keep the loader path constrained to runtime system-library roots.
@@ -206,9 +214,11 @@ discover_library_path() {
 
         library_path="$(append_path_entry "$library_path" "${prefix}${root#$RUNTIME_DIR}" 0)"
 
+        paths="$(run_host_find -L "$root" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' 2>/dev/null || true)"
         while IFS= read -r dir; do
+            [ -n "$dir" ] || continue
             library_path="$(append_path_entry "$library_path" "${prefix}${dir#$RUNTIME_DIR}" 0)"
-        done < <(find -L "$root" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)
+        done <<< "$paths"
     done
 
     echo "$library_path"
@@ -230,6 +240,7 @@ discover_dri_driver_path() {
     local path
     local dri_path=""
     local root
+    local paths=""
     local -a library_roots=("$RUNTIME_DIR/lib" "$RUNTIME_DIR/usr/lib")
 
     for root in "${library_roots[@]}"; do
@@ -237,15 +248,138 @@ discover_dri_driver_path() {
             continue
         fi
 
+        paths="$(run_host_find -L "$root" -mindepth 2 -maxdepth 4 -type d -name dri 2>/dev/null || true)"
         while IFS= read -r path; do
+            [ -n "$path" ] || continue
             if [ -n "$dri_path" ]; then
                 dri_path="${dri_path}:"
             fi
             dri_path="${dri_path}${prefix}${path#$RUNTIME_DIR}"
-        done < <(find -L "$root" -mindepth 2 -maxdepth 4 -type d -name dri | sort)
+        done <<< "$paths"
     done
 
     echo "$dri_path"
+}
+
+discover_rootfs_command_guest_path() {
+    local cmd="$1"
+    local rootfs="${RUNTIME_DIR}/rootfs"
+    local candidate=""
+
+    for candidate in \
+        "/usr/local/bin/${cmd}" \
+        "/usr/bin/${cmd}" \
+        "/bin/${cmd}"
+    do
+        if [ -x "${rootfs}${candidate}" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+discover_rootfs_command_host_path() {
+    local cmd="$1"
+    local rootfs="${RUNTIME_DIR}/rootfs"
+    local candidate=""
+
+    for candidate in \
+        "${rootfs}/usr/local/bin/${cmd}" \
+        "${rootfs}/usr/bin/${cmd}" \
+        "${rootfs}/bin/${cmd}"
+    do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+discover_rootfs_node_path() {
+    local rootfs="${RUNTIME_DIR}/rootfs"
+    local node_path=""
+    local path=""
+
+    for path in \
+        /usr/local/lib/node_modules \
+        /usr/lib/node_modules \
+        /usr/share/nodejs
+    do
+        node_path="$(append_path_entry "$node_path" "$path" "$( [ -d "${rootfs}${path}" ] && echo 0 || echo 1 )")"
+    done
+
+    echo "$node_path"
+}
+
+discover_rootfs_library_path() {
+    local prefix="${1:-$RUNTIME_DIR/rootfs}"
+    local rootfs="${RUNTIME_DIR}/rootfs"
+    local library_path=""
+    local dir=""
+    local root=""
+    local paths=""
+    local -a library_roots=(
+        "$rootfs/lib"
+        "$rootfs/lib64"
+        "$rootfs/usr/lib"
+        "$rootfs/usr/lib64"
+    )
+
+    for root in "${library_roots[@]}"; do
+        if [ ! -e "$root" ] && [ ! -L "$root" ]; then
+            continue
+        fi
+
+        library_path="$(append_path_entry "$library_path" "${prefix}${root#$rootfs}" 0)"
+
+        if [ ! -d "$root" ]; then
+            continue
+        fi
+
+        paths="$(run_host_find -L "$root" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' 2>/dev/null || true)"
+        while IFS= read -r dir; do
+            [ -n "$dir" ] || continue
+            library_path="$(append_path_entry "$library_path" "${prefix}${dir#$rootfs}" 0)"
+        done <<< "$paths"
+    done
+
+    echo "$library_path"
+}
+
+discover_rootfs_loader_path() {
+    local rootfs="${RUNTIME_DIR}/rootfs"
+    local candidate=""
+
+    for candidate in \
+        "${rootfs}/lib64/ld-linux-x86-64.so.2" \
+        "${rootfs}/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" \
+        "${rootfs}/lib/ld-linux-aarch64.so.1" \
+        "${rootfs}/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+    do
+        if [ -x "$candidate" ]; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+command_is_elf_binary() {
+    local path="$1"
+    local magic=""
+
+    [ -f "$path" ] || return 1
+
+    exec 3<"$path" || return 1
+    IFS= read -r -n 4 magic <&3 || true
+    exec 3<&-
+
+    [ "$magic" = $'\177ELF' ]
 }
 
 command_needs_libreoffice_env() {
@@ -259,10 +393,31 @@ command_needs_libreoffice_env() {
     esac
 }
 
+command_requires_rootfs_bwrap() {
+    case "${1:-}" in
+        soffice|node|npm|npx)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 runtime_has_libreoffice_rootfs() {
-    [ -x "$RUNTIME_DIR/rootfs/usr/bin/soffice" ] && \
-        [ -d "$RUNTIME_DIR/rootfs/usr/lib/libreoffice" ] && \
-        [ -d "$RUNTIME_DIR/rootfs/etc/libreoffice" ]
+    [ -x "$RUNTIME_DIR/rootfs/usr/bin/soffice" ] || return 1
+
+    if [ ! -d "$RUNTIME_DIR/rootfs/usr/lib/libreoffice" ] && \
+        ! compgen -G "$RUNTIME_DIR/rootfs/opt/libreoffice*/program" >/dev/null; then
+        return 1
+    fi
+
+    if [ ! -d "$RUNTIME_DIR/rootfs/etc/libreoffice" ] && \
+        ! compgen -G "$RUNTIME_DIR/rootfs/opt/libreoffice*/share/registry" >/dev/null; then
+        return 1
+    fi
+
+    return 0
 }
 
 command_uses_libreoffice_rootfs() {
@@ -270,11 +425,17 @@ command_uses_libreoffice_rootfs() {
     runtime_has_libreoffice_rootfs
 }
 
+command_uses_runtime_rootfs() {
+    discover_rootfs_command_guest_path "${1:-}" >/dev/null 2>&1
+}
+
 rewrite_workdir_args() {
     local arg
 
+    rewritten_args=()
+
     if [ -z "$WORK_DIR" ] && [ -z "$INPUT_DIR" ]; then
-        printf '%s\0' "$@"
+        rewritten_args=("$@")
         return
     fi
 
@@ -282,26 +443,26 @@ rewrite_workdir_args() {
         case "$arg" in
             /input)
                 if [ -n "$INPUT_DIR" ]; then
-                    printf '%s\0' "$INPUT_DIR"
+                    rewritten_args+=("$INPUT_DIR")
                 else
-                    printf '%s\0' "$arg"
+                    rewritten_args+=("$arg")
                 fi
                 ;;
             /input/*)
                 if [ -n "$INPUT_DIR" ]; then
-                    printf '%s\0' "${INPUT_DIR}/${arg#/input/}"
+                    rewritten_args+=("${INPUT_DIR}/${arg#/input/}")
                 else
-                    printf '%s\0' "$arg"
+                    rewritten_args+=("$arg")
                 fi
                 ;;
             /work)
-                printf '%s\0' "$WORK_DIR"
+                rewritten_args+=("$WORK_DIR")
                 ;;
             /work/*)
-                printf '%s\0' "${WORK_DIR}/${arg#/work/}"
+                rewritten_args+=("${WORK_DIR}/${arg#/work/}")
                 ;;
             *)
-                printf '%s\0' "$arg"
+                rewritten_args+=("$arg")
                 ;;
         esac
     done
@@ -602,6 +763,29 @@ setup_env() {
     echo "$env_vars"
 }
 
+setup_rootfs_env() {
+    local tool_cmd="${1:-}"
+    local env_vars=""
+    local node_path=""
+
+    env_vars="${env_vars} --setenv HOME /tmp/home"
+    env_vars="${env_vars} --setenv PATH /usr/local/bin:/usr/bin:/bin"
+    env_vars="${env_vars} --setenv LANG C.UTF-8"
+    env_vars="${env_vars} --setenv LC_ALL C.UTF-8"
+
+    node_path="$(discover_rootfs_node_path)"
+    if [ -n "$node_path" ]; then
+        env_vars="${env_vars} --setenv NODE_PATH ${node_path}"
+    fi
+
+    if command_needs_libreoffice_env "$tool_cmd"; then
+        env_vars="${env_vars} --setenv SAL_DISABLESKIA 1"
+        env_vars="${env_vars} --setenv LIBGL_ALWAYS_SOFTWARE 1"
+    fi
+
+    echo "$env_vars"
+}
+
 # Build bubblewrap command
 append_ro_bind_if_exists() {
     local cmd="$1"
@@ -615,7 +799,8 @@ append_ro_bind_if_exists() {
     fi
 }
 
-build_libreoffice_rootfs_bwrap_cmd() {
+build_rootfs_bwrap_cmd() {
+    local tool_cmd="${1:-}"
     local rootfs="${RUNTIME_DIR}/rootfs"
     local cmd=""
 
@@ -626,9 +811,11 @@ build_libreoffice_rootfs_bwrap_cmd() {
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/bin" /bin)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/lib" /lib)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/lib64" /lib64)"
+    cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/opt" /opt)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/usr/bin" /usr/bin)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/usr/lib" /usr/lib)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/usr/lib64" /usr/lib64)"
+    cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/usr/local" /usr/local)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/usr/share" /usr/share)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/etc" /etc)"
     cmd="$(append_ro_bind_if_exists "$cmd" "${rootfs}/var/lib/libreoffice" /var/lib/libreoffice)"
@@ -649,12 +836,7 @@ build_libreoffice_rootfs_bwrap_cmd() {
         cmd="${cmd} --setenv INPUTDIR /input"
     fi
 
-    cmd="${cmd} --setenv HOME /tmp/home"
-    cmd="${cmd} --setenv PATH /usr/bin:/bin"
-    cmd="${cmd} --setenv LANG C.UTF-8"
-    cmd="${cmd} --setenv LC_ALL C.UTF-8"
-    cmd="${cmd} --setenv SAL_DISABLESKIA 1"
-    cmd="${cmd} --setenv LIBGL_ALWAYS_SOFTWARE 1"
+    cmd="${cmd} $(setup_rootfs_env "$tool_cmd")"
 
     if [ -n "${TRINITY_BWRAP_OPTS:-}" ]; then
         cmd="${cmd} ${TRINITY_BWRAP_OPTS}"
@@ -667,8 +849,8 @@ build_bwrap_cmd() {
     local tool_cmd="${1:-}"
     local cmd=""
 
-    if command_uses_libreoffice_rootfs "$tool_cmd"; then
-        build_libreoffice_rootfs_bwrap_cmd
+    if command_uses_runtime_rootfs "$tool_cmd"; then
+        build_rootfs_bwrap_cmd "$tool_cmd"
         return
     fi
     
@@ -720,6 +902,45 @@ build_bwrap_cmd() {
     echo "$cmd"
 }
 
+run_rootfs_command_without_sandbox() {
+    local cmd="$1"
+    shift
+    local runtime_home="${TMPDIR:-/tmp}/trinity-pptx-home"
+    local rootfs_command=""
+    local rootfs_loader=""
+    local rootfs_library_path=""
+    local runtime_nodepath=""
+    local -a exec_cmd=()
+
+    rootfs_command="$(discover_rootfs_command_host_path "$cmd")"
+    if [ -z "$rootfs_command" ]; then
+        echo "Error: Runtime command not found in bundled rootfs: $cmd" >&2
+        exit 1
+    fi
+
+    mkdir -p "$runtime_home"
+    runtime_nodepath="$(discover_node_path "$RUNTIME_DIR")"
+
+    if command_is_elf_binary "$rootfs_command"; then
+        rootfs_loader="$(discover_rootfs_loader_path)"
+        rootfs_library_path="$(discover_rootfs_library_path)"
+        if [ -z "$rootfs_loader" ] || [ -z "$rootfs_library_path" ]; then
+            echo "Error: Bundled runtime loader paths are incomplete for command: $cmd" >&2
+            exit 1
+        fi
+        exec_cmd=("$rootfs_loader" "--library-path" "$rootfs_library_path" "$rootfs_command")
+    else
+        exec_cmd=("$rootfs_command")
+    fi
+
+    HOME="$runtime_home" \
+    LANG="C.UTF-8" \
+    LC_ALL="C.UTF-8" \
+    PATH="${RUNTIME_DIR}/rootfs/usr/local/bin:${RUNTIME_DIR}/rootfs/usr/bin:${RUNTIME_DIR}/rootfs/bin:/usr/bin:/bin" \
+    NODE_PATH="$runtime_nodepath" \
+    "${exec_cmd[@]}" "$@"
+}
+
 # Run a command in the sandbox and return its status to the caller.
 run_sandboxed() {
     local cmd="$1"
@@ -730,16 +951,17 @@ run_sandboxed() {
     local runtime_library_path=""
     local runtime_dri_driver_path=""
     local -a rewritten_args=()
+    local rootfs_command=""
 
-    if command_uses_libreoffice_rootfs "$cmd" && ! command -v bwrap &> /dev/null; then
-        echo "Error: bundled LibreOffice requires bubblewrap to create its runtime filesystem view." >&2
+    if command_uses_runtime_rootfs "$cmd" && command_requires_rootfs_bwrap "$cmd" && ! command -v bwrap &> /dev/null; then
+        echo "Error: bundled ${cmd} requires bubblewrap to create its runtime filesystem view." >&2
         echo "Install bubblewrap and run without --no-sandbox." >&2
         exit 1
     fi
 
-    if command_uses_libreoffice_rootfs "$cmd" && [ "$USE_BWRAP" != true ]; then
-        echo "Error: bundled LibreOffice requires bubblewrap to create its runtime filesystem view." >&2
-        echo "Remove --no-sandbox (or unset TRINITY_NO_SANDBOX) before running soffice commands." >&2
+    if command_uses_runtime_rootfs "$cmd" && command_requires_rootfs_bwrap "$cmd" && [ "$USE_BWRAP" != true ]; then
+        echo "Error: bundled ${cmd} requires bubblewrap to create its runtime filesystem view." >&2
+        echo "Remove --no-sandbox (or unset TRINITY_NO_SANDBOX) before running this command." >&2
         exit 1
     fi
     
@@ -748,11 +970,12 @@ run_sandboxed() {
         local bwrap_args
         bwrap_args=$(build_bwrap_cmd "$cmd")
 
-        if command_uses_libreoffice_rootfs "$cmd"; then
+        if command_uses_runtime_rootfs "$cmd"; then
+            rootfs_command="$(discover_rootfs_command_guest_path "$cmd")"
             if [ -n "$WORK_DIR" ]; then
-                bwrap $bwrap_args --chdir /work /usr/bin/$cmd "$@"
+                bwrap $bwrap_args --chdir /work "$rootfs_command" "$@"
             else
-                bwrap $bwrap_args /usr/bin/$cmd "$@"
+                bwrap $bwrap_args "$rootfs_command" "$@"
             fi
             return
         fi
@@ -765,6 +988,24 @@ run_sandboxed() {
         fi
     else
         log "Running without sandbox"
+        if [ -n "$WORK_DIR" ]; then
+            rewrite_workdir_args "$@"
+        else
+            rewritten_args=("$@")
+        fi
+
+        if command_uses_runtime_rootfs "$cmd"; then
+            if [ -n "$WORK_DIR" ]; then
+                (
+                    cd "$WORK_DIR" && \
+                    run_rootfs_command_without_sandbox "$cmd" "${rewritten_args[@]}"
+                )
+            else
+                run_rootfs_command_without_sandbox "$cmd" "${rewritten_args[@]}"
+            fi
+            return
+        fi
+
         mkdir -p "$runtime_home"
         runtime_pythonpath="$(discover_pythonpath "$RUNTIME_DIR")"
         runtime_nodepath="$(discover_node_path "$RUNTIME_DIR")"
@@ -777,11 +1018,6 @@ run_sandboxed() {
         if command_needs_libreoffice_env "$cmd"; then
             runtime_library_path="$(append_path_entry "$runtime_library_path" "$(discover_libreoffice_program_path "$RUNTIME_DIR")" 0)"
             runtime_dri_driver_path="$(discover_dri_driver_path "$RUNTIME_DIR")"
-        fi
-        if [ -n "$WORK_DIR" ]; then
-            mapfile -d '' -t rewritten_args < <(rewrite_workdir_args "$@")
-        else
-            rewritten_args=("$@")
         fi
         if [ -n "$WORK_DIR" ]; then
             (
@@ -945,6 +1181,7 @@ main() {
     if [ -n "${TRINITY_PPTX_RUNTIME:-}" ]; then
         RUNTIME_DIR="$TRINITY_PPTX_RUNTIME"
     fi
+    VERSION_FILE="${RUNTIME_DIR}/VERSION"
     
     if [ "${TRINITY_NO_SANDBOX:-}" = "1" ]; then
         USE_BWRAP=false

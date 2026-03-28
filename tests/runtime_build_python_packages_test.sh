@@ -8,7 +8,7 @@ BUILD_SCRIPT="${PROJECT_ROOT}/runtime/build.sh"
 # shellcheck source=/dev/null
 source "${BUILD_SCRIPT}"
 
-mapfile -t python_packages < <(runtime_python_packages)
+mapfile -t python_packages <<< "$(runtime_python_packages)"
 
 for expected in \
     "markitdown-no-magika[pptx]==0.1.2" \

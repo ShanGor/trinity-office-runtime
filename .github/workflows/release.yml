@@ -16,7 +16,7 @@ env:
 
 jobs:
   build-linux-x64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     
     steps:
     - name: Checkout code
@@ -85,7 +85,7 @@ jobs:
 
   create-release:
     needs: [build-linux-x64, build-linux-arm64]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     
@@ -167,7 +167,7 @@ jobs:
 
   update-latest:
     needs: create-release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
     

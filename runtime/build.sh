@@ -11,6 +11,11 @@ DEFAULT_BUILD_DIR="$PROJECT_ROOT/build"
 DIST_DIR="$DEFAULT_DIST_DIR"
 BUILD_DIR="$DEFAULT_BUILD_DIR"
 ROOTFS="$BUILD_DIR/rootfs"
+UBUNTU_VERSION="${UBUNTU_VERSION:-24.04}"
+UBUNTU_CODENAME="${UBUNTU_CODENAME:-noble}"
+LIBREOFFICE_VERSION="${LIBREOFFICE_VERSION:-26.2.2}"
+LIBREOFFICE_DOWNLOAD_BASE="${LIBREOFFICE_DOWNLOAD_BASE:-https://download.documentfoundation.org/libreoffice/stable}"
+BUILD_CACHE_DIR="${TRINITY_BUILD_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/trinity-pptx-runtime}"
 
 copy_tree_contents() {
     local src="$1"
@@ -124,15 +129,16 @@ resolve_ubuntu_repo() {
 
 runtime_apt_packages() {
     cat <<'EOF'
-libreoffice-impress
-libreoffice-java-common
-libreoffice-sdbc-hsqldb
 libegl1
+libdbus-1-3
 libgbm1
+libglib2.0-0
 libgl1
 libgl1-mesa-dri
 libglx-mesa0
+libcups2t64
 libopengl0
+libxinerama1
 poppler-utils
 python3
 python3-pip
@@ -158,6 +164,111 @@ runtime_node_packages() {
     cat <<'EOF'
 pptxgenjs@3.12.0
 EOF
+}
+
+libreoffice_series() {
+    local version="${1:-$LIBREOFFICE_VERSION}"
+    echo "${version%.*}"
+}
+
+libreoffice_install_dirname() {
+    local version="${1:-$LIBREOFFICE_VERSION}"
+    echo "libreoffice$(libreoffice_series "$version")"
+}
+
+libreoffice_download_dir_arch() {
+    case "$1" in
+        amd64)
+            echo "x86_64"
+            ;;
+        arm64)
+            echo "aarch64"
+            ;;
+        *)
+            echo "Unsupported LibreOffice architecture: $1" >&2
+            exit 1
+            ;;
+    esac
+}
+
+libreoffice_download_file_arch() {
+    case "$1" in
+        amd64)
+            echo "x86-64"
+            ;;
+        arm64)
+            echo "aarch64"
+            ;;
+        *)
+            echo "Unsupported LibreOffice architecture: $1" >&2
+            exit 1
+            ;;
+    esac
+}
+
+libreoffice_download_url() {
+    local version="${1:-$LIBREOFFICE_VERSION}"
+    local deb_arch="$2"
+    local dir_arch
+    local file_arch
+
+    if [ -n "${LIBREOFFICE_TARBALL_URL:-}" ]; then
+        echo "$LIBREOFFICE_TARBALL_URL"
+        return 0
+    fi
+
+    dir_arch="$(libreoffice_download_dir_arch "$deb_arch")"
+    file_arch="$(libreoffice_download_file_arch "$deb_arch")"
+    echo "${LIBREOFFICE_DOWNLOAD_BASE}/${version}/deb/${dir_arch}/LibreOffice_${version}_Linux_${file_arch}_deb.tar.gz"
+}
+
+replace_with_symlink() {
+    local target="$1"
+    local path="$2"
+
+    rm -rf "$path"
+    ln -s "$target" "$path"
+}
+
+build_cache_subdir() {
+    local subdir="$1"
+
+    mkdir -p "${BUILD_CACHE_DIR}/${subdir}"
+    echo "${BUILD_CACHE_DIR}/${subdir}"
+}
+
+ensure_chroot_char_device() {
+    local path="$1"
+    local mode="$2"
+    local major="$3"
+    local minor="$4"
+
+    rm -f "$path"
+    mknod -m "$mode" "$path" c "$major" "$minor"
+}
+
+prepare_chroot_devfs() {
+    local rootfs="$1"
+
+    mount -t tmpfs -o mode=755,nosuid tmpfs "$rootfs/dev"
+    mkdir -p "$rootfs/dev/pts" "$rootfs/dev/shm"
+
+    ensure_chroot_char_device "$rootfs/dev/null" 666 1 3
+    ensure_chroot_char_device "$rootfs/dev/zero" 666 1 5
+    ensure_chroot_char_device "$rootfs/dev/full" 666 1 7
+    ensure_chroot_char_device "$rootfs/dev/random" 666 1 8
+    ensure_chroot_char_device "$rootfs/dev/urandom" 666 1 9
+    ensure_chroot_char_device "$rootfs/dev/tty" 666 5 0
+    ensure_chroot_char_device "$rootfs/dev/console" 600 5 1
+    ensure_chroot_char_device "$rootfs/dev/ptmx" 666 5 2
+
+    mount -t devpts -o mode=620,ptmxmode=666,nosuid,noexec devpts "$rootfs/dev/pts"
+    mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs "$rootfs/dev/shm"
+
+    ln -snf /proc/self/fd "$rootfs/dev/fd"
+    ln -snf /proc/self/fd/0 "$rootfs/dev/stdin"
+    ln -snf /proc/self/fd/1 "$rootfs/dev/stdout"
+    ln -snf /proc/self/fd/2 "$rootfs/dev/stderr"
 }
 
 run_in_chroot() {
@@ -206,6 +317,88 @@ run_in_chroot() {
     chroot "$rootfs" /usr/bin/env "${env_vars[@]}" "$@"
 }
 
+configure_official_libreoffice_rootfs_layout() {
+    local rootfs="$1"
+    local version="${2:-$LIBREOFFICE_VERSION}"
+    local install_dirname
+    local install_root=""
+
+    install_dirname="$(libreoffice_install_dirname "$version")"
+    install_root="/opt/${install_dirname}"
+
+    if [ ! -d "${rootfs}${install_root}/program" ]; then
+        echo "Missing extracted LibreOffice program directory: ${install_root}/program" >&2
+        exit 1
+    fi
+
+    mkdir -p \
+        "${rootfs}/usr/bin" \
+        "${rootfs}/usr/lib" \
+        "${rootfs}/usr/share/java" \
+        "${rootfs}/etc/libreoffice" \
+        "${rootfs}/var/lib/libreoffice/share/prereg/bundled" \
+        "${rootfs}/var/spool/libreoffice/uno_packages"
+
+    replace_with_symlink "../../${install_root#/}" "${rootfs}/usr/lib/libreoffice"
+    replace_with_symlink "../../${install_root#/}/program/soffice" "${rootfs}/usr/bin/soffice"
+    replace_with_symlink "../../${install_root#/}/share/registry" "${rootfs}/etc/libreoffice/registry"
+    replace_with_symlink "../../${install_root#/}/share/psprint/psprint.conf" "${rootfs}/etc/libreoffice/psprint.conf"
+    replace_with_symlink "../../${install_root#/}/program/sofficerc" "${rootfs}/etc/libreoffice/sofficerc"
+    replace_with_symlink "../../../${install_root#/}/program/classes/hsqldb.jar" "${rootfs}/usr/share/java/hsqldb1.8.0.jar"
+    replace_with_symlink "../../../${install_root#/}/program/classes/sdbc_hsqldb.jar" "${rootfs}/usr/share/java/sdbc_hsqldb.jar"
+    replace_with_symlink "../../../../${install_root#/}/share/uno_packages/cache" "${rootfs}/var/spool/libreoffice/uno_packages/cache"
+}
+
+install_official_libreoffice() {
+    local rootfs="$1"
+    local deb_arch="$2"
+    local build_dir="$3"
+    local version="${4:-$LIBREOFFICE_VERSION}"
+    local cache_dir="${5:-}"
+    local work_dir="${build_dir}/libreoffice"
+    local extract_dir="${work_dir}/extract"
+    local tarball="${work_dir}/libreoffice-${version}-${deb_arch}.tar.gz"
+    local cached_tarball=""
+    local deb_dir=""
+    local url=""
+
+    mkdir -p "$work_dir" "$extract_dir" "${rootfs}/tmp/libreoffice-debs"
+    url="$(libreoffice_download_url "$version" "$deb_arch")"
+
+    if [ -n "$cache_dir" ]; then
+        cached_tarball="${cache_dir}/LibreOffice_${version}_${deb_arch}.tar.gz"
+        if [ -s "$cached_tarball" ]; then
+            echo "Using cached LibreOffice ${version} tarball: ${cached_tarball}"
+            cp -f "$cached_tarball" "$tarball"
+        fi
+    fi
+
+    if [ ! -s "$tarball" ]; then
+        echo "Downloading LibreOffice ${version} from ${url}"
+        curl -L --retry "${CURL_RETRIES:-5}" --retry-delay "${CURL_RETRY_DELAY:-5}" -o "$tarball" "$url"
+        if [ -n "$cached_tarball" ]; then
+            cp -f "$tarball" "$cached_tarball"
+        fi
+    fi
+
+    echo "Installing LibreOffice ${version}..."
+    tar -xzf "$tarball" -C "$extract_dir"
+    deb_dir="$(find "$extract_dir" -type d -name DEBS -print -quit)"
+    if [ -z "$deb_dir" ]; then
+        echo "Unable to locate LibreOffice DEBS directory in ${tarball}" >&2
+        exit 1
+    fi
+
+    cp -a "$deb_dir"/. "${rootfs}/tmp/libreoffice-debs"/
+    if ! run_in_chroot "$rootfs" /bin/sh -c 'dpkg -i /tmp/libreoffice-debs/*.deb'; then
+        run_in_chroot "$rootfs" apt-get install -f -y --no-install-recommends
+    fi
+    run_in_chroot "$rootfs" apt-get install -f -y --no-install-recommends
+    run_in_chroot "$rootfs" rm -rf /tmp/libreoffice-debs
+
+    configure_official_libreoffice_rootfs_layout "$rootfs" "$version"
+}
+
 cleanup_chroot_environment() {
     local rootfs="$1"
 
@@ -223,8 +416,7 @@ prepare_chroot_environment() {
     mount -t proc proc "$rootfs/proc"
     mount --rbind /sys "$rootfs/sys"
     mount --make-rslave "$rootfs/sys"
-    mount --rbind /dev "$rootfs/dev"
-    mount --make-rslave "$rootfs/dev"
+    prepare_chroot_devfs "$rootfs"
 }
 
 repair_libreoffice_bundle_paths() {
@@ -261,6 +453,7 @@ repair_libreoffice_program_compat_symlinks() {
     local dist_root="$1"
     local program_dir="$dist_root/lib/libreoffice/program"
     local arch_dir
+    local -a arch_dirs=()
     local dst
     local src
     local entry
@@ -284,7 +477,9 @@ repair_libreoffice_program_compat_symlinks() {
         return 0
     fi
 
-    while IFS= read -r arch_dir; do
+    mapfile -t arch_dirs <<< "$(find "$dist_root/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)"
+    for arch_dir in "${arch_dirs[@]}"; do
+        [ -n "$arch_dir" ] || continue
         for entry in "${symlink_entries[@]}"; do
             src="${program_dir}/${entry}"
             dst="${arch_dir}/${entry}"
@@ -338,7 +533,7 @@ repair_libreoffice_program_compat_symlinks() {
                     ;;
             esac
         done
-    done < <(find "$dist_root/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)
+    done
 }
 
 repair_libreoffice_share_symlinks() {
@@ -382,6 +577,41 @@ else:
     TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec python3 -c "$script" >/dev/null
 }
 
+verify_markitdown_rootfs_runtime() {
+    local script='
+import importlib
+import PIL
+
+last_error = None
+for module_name in ("markitdown", "markitdown_no_magika"):
+    try:
+        importlib.import_module(module_name)
+        break
+    except Exception as exc:
+        last_error = exc
+else:
+    raise last_error or ModuleNotFoundError("No MarkItDown module is available")
+'
+
+    run_in_chroot "$DIST_DIR/rootfs" python3 -c "$script" >/dev/null
+}
+
+bundled_libreoffice_has_hsqldb_jar() {
+    [ -f "$DIST_DIR/share/java/hsqldb1.8.0.jar" ] || \
+        [ -f "$DIST_DIR/lib/libreoffice/program/classes/hsqldb.jar" ]
+}
+
+bundled_runtime_has_libreoffice_rootfs() {
+    [ -d "$DIST_DIR/rootfs/usr/bin" ] || return 1
+
+    if [ ! -d "$DIST_DIR/rootfs/usr/lib/libreoffice" ] && \
+        ! compgen -G "$DIST_DIR/rootfs/opt/libreoffice*/program" >/dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
 verify_runtime_bundle() {
     echo "Verifying bundled runtime..."
 
@@ -410,18 +640,26 @@ verify_runtime_bundle() {
         exit 1
     fi
 
-    if [ ! -f "$DIST_DIR/share/java/hsqldb1.8.0.jar" ]; then
-        echo "Missing bundled LibreOffice Java dependency: share/java/hsqldb1.8.0.jar"
+    if ! bundled_libreoffice_has_hsqldb_jar; then
+        echo "Missing bundled LibreOffice Java dependency: share/java/hsqldb1.8.0.jar or lib/libreoffice/program/classes/hsqldb.jar"
         exit 1
     fi
 
-    verify_markitdown_runtime
-
-    TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
-        node -e "require('pptxgenjs')"
-
-    if [ -d "$DIST_DIR/rootfs/usr/bin" ] && [ -d "$DIST_DIR/rootfs/usr/lib/libreoffice" ]; then
+    if bundled_runtime_has_libreoffice_rootfs; then
         prepare_chroot_environment "$DIST_DIR/rootfs"
+        if ! verify_markitdown_rootfs_runtime; then
+            cleanup_chroot_environment "$DIST_DIR/rootfs"
+            echo "Bundled rootfs python runtime failed to import MarkItDown"
+            exit 1
+        fi
+        if ! run_in_chroot "$DIST_DIR/rootfs" /usr/bin/env \
+            NODE_PATH=/usr/local/lib/node_modules:/usr/lib/node_modules:/usr/share/nodejs \
+            node -e "require('pptxgenjs')" >/dev/null
+        then
+            cleanup_chroot_environment "$DIST_DIR/rootfs"
+            echo "Bundled rootfs node runtime failed to import pptxgenjs"
+            exit 1
+        fi
         if ! run_in_chroot "$DIST_DIR/rootfs" /usr/bin/env \
             -u DISPLAY \
             -u WAYLAND_DISPLAY \
@@ -435,6 +673,11 @@ verify_runtime_bundle() {
         fi
         cleanup_chroot_environment "$DIST_DIR/rootfs"
     else
+        verify_markitdown_runtime
+
+        TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
+            node -e "require('pptxgenjs')"
+
         env -u DISPLAY -u WAYLAND_DISPLAY -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS \
             TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
             soffice --headless --version >/dev/null
@@ -455,11 +698,19 @@ bwrap_is_usable() {
 
 main() {
     local preferred_build_dir="${TRINITY_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
+    local preferred_dist_dir="${TRINITY_DIST_DIR:-$DEFAULT_DIST_DIR}"
     local -a runtime_packages=()
     local -a python_packages=()
     local -a node_packages=()
+    local cache_root=""
+    local debootstrap_cache_dir=""
+    local download_cache_dir=""
+    local apt_archives_cache_dir=""
+    local pip_cache_dir=""
+    local npm_cache_dir=""
+    local ubuntu_base_tarball=""
 
-    DIST_DIR="${TRINITY_DIST_DIR:-$DEFAULT_DIST_DIR}"
+    DIST_DIR="$(choose_build_dir "$preferred_dist_dir")"
     BUILD_DIR="$(choose_build_dir "$preferred_build_dir")"
     ROOTFS="$BUILD_DIR/rootfs"
 
@@ -469,9 +720,13 @@ main() {
     if [ "$BUILD_DIR" != "$preferred_build_dir" ]; then
         echo "Using a temporary build directory because ${preferred_build_dir} is mounted with nodev/noexec"
     fi
+    if [ "$DIST_DIR" != "$preferred_dist_dir" ]; then
+        echo "Using a temporary output directory because ${preferred_dist_dir} is mounted with nodev/noexec or uses a case-insensitive 9p/drvfs filesystem"
+    fi
 
     # Clean previous builds
     cleanup_chroot_environment "$ROOTFS"
+    cleanup_chroot_environment "$DIST_DIR/rootfs"
     rm -rf "$DIST_DIR" "$BUILD_DIR"
     mkdir -p "$DIST_DIR" "$BUILD_DIR"
 
@@ -490,6 +745,14 @@ main() {
 
     echo "Building for architecture: $ARCH ($DEB_ARCH)"
 
+    cache_root="$(build_cache_subdir "")"
+    debootstrap_cache_dir="$(build_cache_subdir "debootstrap/${UBUNTU_CODENAME}-${DEB_ARCH}")"
+    download_cache_dir="$(build_cache_subdir "downloads")"
+    apt_archives_cache_dir="$(build_cache_subdir "apt-archives/${UBUNTU_CODENAME}-${DEB_ARCH}")"
+    pip_cache_dir="$(build_cache_subdir "pip")"
+    npm_cache_dir="$(build_cache_subdir "npm")"
+    echo "Using build cache: ${cache_root}"
+
     # Allow callers to override the Ubuntu mirror while preserving
     # architecture-specific defaults for normal builds.
     UBUNTU_REPO="$(resolve_ubuntu_repo "$DEB_ARCH")"
@@ -502,25 +765,32 @@ main() {
     # Use debootstrap if available, otherwise download minimal rootfs
     if command -v debootstrap &> /dev/null; then
         echo "Using debootstrap..."
-        debootstrap --variant=minbase --include=ca-certificates \
-            jammy "$ROOTFS" "$UBUNTU_REPO"
+        debootstrap --cache-dir="$debootstrap_cache_dir" \
+            --variant=minbase --include=ca-certificates \
+            "$UBUNTU_CODENAME" "$ROOTFS" "$UBUNTU_REPO"
     else
         echo "Downloading minimal Ubuntu rootfs..."
-        curl -L "https://cdimage.ubuntu.com/ubuntu-base/releases/22.04/release/ubuntu-base-22.04-base-${DEB_ARCH}.tar.gz" | \
-            tar xz -C "$ROOTFS"
+        ubuntu_base_tarball="${download_cache_dir}/ubuntu-base-${UBUNTU_VERSION}-${DEB_ARCH}.tar.gz"
+        if [ ! -s "$ubuntu_base_tarball" ]; then
+            curl -L -o "$ubuntu_base_tarball" "https://cdimage.ubuntu.com/ubuntu-base/releases/${UBUNTU_VERSION}/release/ubuntu-base-${UBUNTU_VERSION}-base-${DEB_ARCH}.tar.gz"
+        fi
+        tar xzf "$ubuntu_base_tarball" -C "$ROOTFS"
     fi
 
     # Configure apt sources with universe repository
     echo "Configuring apt sources..."
     cat > "$ROOTFS/etc/apt/sources.list" << EOF
-deb $UBUNTU_REPO jammy main universe
-deb $UBUNTU_REPO jammy-updates main universe
-deb $UBUNTU_REPO jammy-security main universe
+deb $UBUNTU_REPO $UBUNTU_CODENAME main universe
+deb $UBUNTU_REPO $UBUNTU_CODENAME-updates main universe
+deb $UBUNTU_REPO $UBUNTU_CODENAME-security main universe
 EOF
 
     # Package post-install hooks need a normal chroot view of /proc and /dev.
     prepare_chroot_environment "$ROOTFS"
     trap 'cleanup_chroot_environment "$ROOTFS"' EXIT
+    copy_tree_contents "$apt_archives_cache_dir" "$ROOTFS/var/cache/apt/archives"
+    copy_tree_contents "$pip_cache_dir" "$ROOTFS/var/cache/trinity-pip"
+    copy_tree_contents "$npm_cache_dir" "$ROOTFS/var/cache/trinity-npm"
 
     # Install required packages in chroot
     echo "Installing packages..."
@@ -532,23 +802,18 @@ EOF
         curl \
         gnupg
 
-    # Install all packages.
-    # Jammy's *-nogui LibreOffice packages omit the Impress UI resources that
-    # headless PPTX conversion still loads at startup, so install the full
-    # Impress package set here even though we run soffice in headless mode.
-    # Use Ubuntu's bundled Node.js packages to keep the build self-contained
-    # on restricted networks instead of depending on the external NodeSource
-    # repository during runtime assembly.
-    # Bundle CJK-capable fonts so LibreOffice can substitute missing Windows
-    # Chinese fonts instead of rendering tofu boxes in exported PDFs.
-    # libreoffice-sdbc-hsqldb stays explicit because libreoffice-base-drivers
-    # only recommends it, and this build intentionally uses
-    # --no-install-recommends to keep the bundle size down.
-    mapfile -t runtime_packages < <(runtime_apt_packages)
+    # Install Ubuntu-packaged runtime dependencies.
+    # Keep Node.js self-contained from the Ubuntu archive and bundle CJK-capable
+    # fonts so LibreOffice can substitute missing Windows Chinese fonts instead
+    # of rendering tofu boxes in exported PDFs.
+    mapfile -t runtime_packages <<< "$(runtime_apt_packages)"
     run_in_chroot "$ROOTFS" apt-get install -y --no-install-recommends \
         "${runtime_packages[@]}"
 
+    install_official_libreoffice "$ROOTFS" "$DEB_ARCH" "$BUILD_DIR" "$LIBREOFFICE_VERSION" "$download_cache_dir"
+
     # Clean up apt cache
+    copy_tree_contents "$ROOTFS/var/cache/apt/archives" "$apt_archives_cache_dir"
     run_in_chroot "$ROOTFS" apt-get clean
     run_in_chroot "$ROOTFS" rm -rf /var/lib/apt/lists/*
 
@@ -562,19 +827,23 @@ EOF
     # core MarkItDown CLI/API.
     echo "Installing Python packages..."
     run_in_chroot "$ROOTFS" mkdir -p /usr/lib/python3/dist-packages
-    mapfile -t python_packages < <(runtime_python_packages)
-    run_in_chroot "$ROOTFS" pip3 install --no-cache-dir \
+    mapfile -t python_packages <<< "$(runtime_python_packages)"
+    run_in_chroot "$ROOTFS" /usr/bin/env PIP_CACHE_DIR=/var/cache/trinity-pip \
+        pip3 install --upgrade \
         --retries "${PIP_RETRIES:-10}" \
         --timeout "${PIP_TIMEOUT:-300}" \
         --target /usr/lib/python3/dist-packages \
         "${python_packages[@]}"
+    copy_tree_contents "$ROOTFS/var/cache/trinity-pip" "$pip_cache_dir"
 
-    # Install Node.js packages globally
-    # Jammy ships Node 12, so keep pptxgenjs on the last pre-4.x line that does
-    # not pull dependencies requiring Node >=16.
+    # Install Node.js packages globally.
+    # Keep a known-good pptxgenjs version pinned to reduce bundle regressions
+    # across distro/runtime upgrades.
     echo "Installing Node.js packages..."
-    mapfile -t node_packages < <(runtime_node_packages)
-    run_in_chroot "$ROOTFS" npm install -g "${node_packages[@]}"
+    mapfile -t node_packages <<< "$(runtime_node_packages)"
+    run_in_chroot "$ROOTFS" /usr/bin/env NPM_CONFIG_CACHE=/var/cache/trinity-npm \
+        npm install -g "${node_packages[@]}"
+    copy_tree_contents "$ROOTFS/var/cache/trinity-npm" "$npm_cache_dir"
 
     cleanup_chroot_environment "$ROOTFS"
     trap - EXIT
@@ -598,6 +867,7 @@ EOF
     copy_path_into_dir "$ROOTFS/bin" "$DIST_DIR/rootfs"
     copy_path_into_dir "$ROOTFS/lib" "$DIST_DIR/rootfs"
     copy_path_into_dir "$ROOTFS/lib64" "$DIST_DIR/rootfs"
+    copy_path_into_dir "$ROOTFS/opt" "$DIST_DIR/rootfs"
     copy_path_into_dir "$ROOTFS/usr" "$DIST_DIR/rootfs"
     copy_path_into_dir "$ROOTFS/etc" "$DIST_DIR/rootfs"
     copy_path_into_dir "$ROOTFS/var/lib/libreoffice" "$DIST_DIR/rootfs/var/lib"

@@ -120,9 +120,26 @@ prepare_install_dir() {
 runtime_preserves_libreoffice_rootfs() {
     local install_root="$1"
 
-    [ -x "${install_root}/rootfs/usr/bin/soffice" ] && \
-        [ -d "${install_root}/rootfs/usr/lib/libreoffice" ] && \
-        [ -d "${install_root}/rootfs/etc/libreoffice" ]
+    [ -x "${install_root}/rootfs/usr/bin/soffice" ] || return 1
+
+    if [ ! -d "${install_root}/rootfs/usr/lib/libreoffice" ] && \
+        ! compgen -G "${install_root}/rootfs/opt/libreoffice*/program" >/dev/null; then
+        return 1
+    fi
+
+    if [ ! -d "${install_root}/rootfs/etc/libreoffice" ] && \
+        ! compgen -G "${install_root}/rootfs/opt/libreoffice*/share/registry" >/dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
+libreoffice_bundle_has_hsqldb_jar() {
+    local install_root="$1"
+
+    [ -f "${install_root}/share/java/hsqldb1.8.0.jar" ] || \
+        [ -f "${install_root}/lib/libreoffice/program/classes/hsqldb.jar" ]
 }
 
 finalize_libreoffice_runtime_layout() {
@@ -176,6 +193,7 @@ repair_libreoffice_program_compat_symlinks() {
     local install_root="$1"
     local program_dir="${install_root}/lib/libreoffice/program"
     local arch_dir=""
+    local arch_dirs=""
     local base=""
     local dst=""
     local repaired="0"
@@ -201,7 +219,10 @@ repair_libreoffice_program_compat_symlinks() {
         return 0
     fi
 
+    arch_dirs="$(env -u LD_LIBRARY_PATH -u LD_PRELOAD -u LD_AUDIT PATH="/usr/bin:/bin" \
+        find "${install_root}/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' 2>/dev/null || true)"
     while IFS= read -r arch_dir; do
+        [ -n "$arch_dir" ] || continue
         for entry in "${symlink_entries[@]}"; do
             src="${program_dir}/${entry}"
             dst="${arch_dir}/${entry}"
@@ -258,7 +279,7 @@ repair_libreoffice_program_compat_symlinks() {
             esac
             repaired="1"
         done
-    done < <(find "${install_root}/lib" -mindepth 1 -maxdepth 1 -type d -name '*-linux-gnu' | sort)
+    done <<< "$arch_dirs"
 
     if [ "$repaired" = "1" ]; then
         log_info "Repairing LibreOffice multi-arch compatibility entries..."
@@ -539,8 +560,8 @@ check_libreoffice_bundle_completeness() {
     if [ ! -f "${install_root}/lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui" ]; then
         missing+=("lib/libreoffice/share/config/soffice.cfg/modules/simpress/ui/tabviewbar.ui")
     fi
-    if [ ! -f "${install_root}/share/java/hsqldb1.8.0.jar" ]; then
-        missing+=("share/java/hsqldb1.8.0.jar")
+    if ! libreoffice_bundle_has_hsqldb_jar "${install_root}"; then
+        missing+=("share/java/hsqldb1.8.0.jar or lib/libreoffice/program/classes/hsqldb.jar")
     fi
 
     if [ "${#missing[@]}" -ne 0 ]; then

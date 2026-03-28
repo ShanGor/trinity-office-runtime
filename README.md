@@ -19,7 +19,7 @@ All tools run inside a [bubblewrap](https://github.com/containers/bubblewrap) sa
 ```bash
 export UBUNTU_REPO=http://mirrors.aliyun.com/ubuntu
 export PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
-export NPM_CONFIG_REGISTRY=https://registry.npmmirror.com/
+export NPM_REPO=https://registry.npmmirror.com/
 bash runtime/build.sh
 ```
 
@@ -150,7 +150,7 @@ trinity-pptx exec soffice --headless --convert-to pdf input.docx
 
 ### Prerequisites
 
-- Linux system (Ubuntu 22.04+ recommended)
+- Linux system (Ubuntu 24.04+ recommended)
 - `debootstrap` (for native build) or Docker
 - `curl`, `tar`, `xz-utils`
 - Root access (for debootstrap/chroot)
@@ -177,11 +177,14 @@ sudo ./build.sh
 # Output: trinity-pptx-runtime-linux-x64.tar.gz
 ```
 
+Build downloads are cached locally by default under `${XDG_CACHE_HOME:-$HOME/.cache}/trinity-pptx-runtime`.
+Override that location with `TRINITY_BUILD_CACHE_DIR=/path/to/cache` when you want a shared or persistent cache across worktrees.
+
 **What the build script does:**
 1. Creates a minimal Ubuntu rootfs using `debootstrap`
-2. Installs required packages (LibreOffice, Python, Node.js, Poppler, fonts)
+2. Installs Ubuntu runtime dependencies (Python, Node.js, Poppler, fonts) and the official LibreOffice stable tarball
 3. Installs Python packages (the `markitdown` CLI via `markitdown-no-magika[pptx]`, plus Pillow) into the bundled runtime
-4. Installs Node.js packages (`pptxgenjs@3.12.0`, pinned for Ubuntu 22.04's bundled Node.js runtime)
+4. Installs Node.js packages (`pptxgenjs@3.12.0`, kept pinned as a known-good runtime dependency)
 5. Packages both `/usr` and `/usr/local` runtime assets needed by the tools
 6. Verifies the packaged artifact can import the bundled MarkItDown module and `pptxgenjs`, and when `bwrap` is usable also verifies sandboxed `soffice --headless --version`
 7. Optimizes by removing unnecessary files (docs, man pages, caches)
@@ -203,7 +206,7 @@ git push origin v1.0.0
 4. Click "Run workflow"
 
 The workflow will:
-- Build for `linux/x64` (Ubuntu latest)
+- Build for `linux/x64` (Ubuntu 24.04)
 - Build for `linux/arm64` (Ubuntu ARM runner)
 - Create a GitHub Release with both packages
 - Generate checksums
@@ -219,7 +222,7 @@ git clone https://github.com/ShanGor/trinity-pptx-runtime.git
 cd trinity-pptx-runtime
 
 # Build using Docker
-docker run --rm -v $(pwd):/workspace -w /workspace ubuntu:22.04 \
+docker run --rm -v $(pwd):/workspace -w /workspace ubuntu:24.04 \
   bash -c "
     apt-get update && \
     apt-get install -y debootstrap curl binutils xz-utils && \

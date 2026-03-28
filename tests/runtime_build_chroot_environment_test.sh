@@ -23,6 +23,18 @@ umount() {
     printf 'umount %s\n' "$*" >>"$calls_file"
 }
 
+rm() {
+    printf 'rm %s\n' "$*" >>"$calls_file"
+}
+
+mknod() {
+    printf 'mknod %s\n' "$*" >>"$calls_file"
+}
+
+ln() {
+    printf 'ln %s\n' "$*" >>"$calls_file"
+}
+
 chroot() {
     printf 'chroot %s\n' "$*" >>"$calls_file"
 }
@@ -43,8 +55,14 @@ for expected in \
     "mount -t proc proc ${rootfs}/proc" \
     "mount --rbind /sys ${rootfs}/sys" \
     "mount --make-rslave ${rootfs}/sys" \
-    "mount --rbind /dev ${rootfs}/dev" \
-    "mount --make-rslave ${rootfs}/dev" \
+    "mount -t tmpfs -o mode=755,nosuid tmpfs ${rootfs}/dev" \
+    "mkdir -p ${rootfs}/dev/pts ${rootfs}/dev/shm" \
+    "mknod -m 666 ${rootfs}/dev/null c 1 3" \
+    "mknod -m 666 ${rootfs}/dev/zero c 1 5" \
+    "mknod -m 666 ${rootfs}/dev/ptmx c 5 2" \
+    "mount -t devpts -o mode=620,ptmxmode=666,nosuid,noexec devpts ${rootfs}/dev/pts" \
+    "mount -t tmpfs -o mode=1777,nosuid,nodev tmpfs ${rootfs}/dev/shm" \
+    "ln -snf /proc/self/fd ${rootfs}/dev/fd" \
     "chroot ${rootfs} /usr/bin/env" \
     "HOME=/root" \
     "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \

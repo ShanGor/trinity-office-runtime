@@ -40,4 +40,9 @@ if [ "$(choose_build_dir "/mnt/d/sources/ai/trinity-pptx-runtime/build")" != "/t
     exit 1
 fi
 
+if [ "$(choose_build_dir "/mnt/d/sources/ai/trinity-pptx-runtime/dist")" != "/tmp/trinity-pptx-runtime-build.mock" ]; then
+    echo "Expected output directory selection to fall back to a temporary location on 9p/drvfs mounts" >&2
+    exit 1
+fi
+
 echo "PASS: runtime/build.sh avoids 9p/drvfs build directories for rootfs creation"

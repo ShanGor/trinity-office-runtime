@@ -36,24 +36,28 @@ trap 'rm -rf "$tmpdir"' EXIT
 runtime_dir="${tmpdir}/runtime"
 mkdir -p \
     "${runtime_dir}/rootfs/usr/bin" \
-    "${runtime_dir}/rootfs/usr/lib/libreoffice" \
+    "${runtime_dir}/rootfs/usr/lib" \
     "${runtime_dir}/rootfs/usr/share" \
+    "${runtime_dir}/rootfs/opt/libreoffice26.2/program" \
     "${runtime_dir}/rootfs/etc/libreoffice" \
     "${runtime_dir}/rootfs/var/lib/libreoffice" \
     "${runtime_dir}/rootfs/var/spool/libreoffice"
 
 copy_binary_with_deps /bin/sh "${runtime_dir}/rootfs"
 
-cat > "${runtime_dir}/rootfs/usr/bin/soffice" << 'INNER'
+ln -s ../../opt/libreoffice26.2/program/soffice "${runtime_dir}/rootfs/usr/bin/soffice"
+ln -s ../../opt/libreoffice26.2 "${runtime_dir}/rootfs/usr/lib/libreoffice"
+
+cat > "${runtime_dir}/rootfs/opt/libreoffice26.2/program/soffice" << 'INNER'
 #!/bin/sh
 printf '%s\n' "$0"
 printf 'LANG=%s\n' "${LANG:-}"
 printf 'LC_ALL=%s\n' "${LC_ALL:-}"
-if [ -d /usr/lib ] && [ -d /usr/share ] && [ -d /etc/libreoffice ] && [ -d /var/lib/libreoffice ]; then
+if [ -d /usr/lib ] && [ -d /usr/share ] && [ -d /etc/libreoffice ] && [ -d /var/lib/libreoffice ] && [ -d /opt/libreoffice26.2/program ]; then
     echo "FHS_OK"
 fi
 INNER
-chmod +x "${runtime_dir}/rootfs/usr/bin/soffice"
+chmod +x "${runtime_dir}/rootfs/opt/libreoffice26.2/program/soffice"
 
 ln -s rootfs/usr/bin "${runtime_dir}/bin"
 ln -s rootfs/usr/lib "${runtime_dir}/lib"
