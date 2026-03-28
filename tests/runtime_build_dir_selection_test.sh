@@ -27,20 +27,20 @@ findmnt() {
 }
 
 mktemp() {
-    printf '/tmp/trinity-pptx-runtime-build.mock\n'
+    printf '/tmp/trinity-office-runtime-build.mock\n'
 }
 
-if build_dir_supports_rootfs "/mnt/d/sources/ai/trinity-pptx-runtime/build"; then
+if build_dir_supports_rootfs "/mnt/d/sources/ai/trinity-office-runtime/build"; then
     echo "Expected 9p/drvfs-backed build directory to be rejected for rootfs creation" >&2
     exit 1
 fi
 
-if [ "$(choose_build_dir "/mnt/d/sources/ai/trinity-pptx-runtime/build")" != "/tmp/trinity-pptx-runtime-build.mock" ]; then
+if [ "$(choose_build_dir "/mnt/d/sources/ai/trinity-office-runtime/build")" != "/tmp/trinity-office-runtime-build.mock" ]; then
     echo "Expected build directory selection to fall back to a temporary location on 9p/drvfs mounts" >&2
     exit 1
 fi
 
-if [ "$(choose_build_dir "/mnt/d/sources/ai/trinity-pptx-runtime/dist")" != "/tmp/trinity-pptx-runtime-build.mock" ]; then
+if [ "$(choose_build_dir "/mnt/d/sources/ai/trinity-office-runtime/dist")" != "/tmp/trinity-office-runtime-build.mock" ]; then
     echo "Expected output directory selection to fall back to a temporary location on 9p/drvfs mounts" >&2
     exit 1
 fi

@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Trinity PPTX Runtime - Main Entry Point
+# Trinity Office Runtime - Main Entry Point
 # Wraps LibreOffice, Python tools, and Node.js in a sandboxed environment
 #
 
@@ -31,9 +31,12 @@ show_version() {
 # Show help
 show_help() {
     cat << 'EOF'
-Trinity PPTX Runtime - Process PPTX files in a sandboxed environment
+Trinity Office Runtime - Sandboxed office document tooling
 
-Usage: trinity-pptx [OPTIONS] COMMAND [ARGS...]
+The convenience commands below are PPTX-focused; use `exec` for broader
+office formats through bundled LibreOffice and other runtime tools.
+
+Usage: trinity-office [OPTIONS] COMMAND [ARGS...]
 
 Commands:
   convert <input.pptx> [output.pdf]    Convert PPTX to PDF
@@ -50,13 +53,13 @@ Options:
   --verbose            Enable verbose output
 
 Examples:
-  trinity-pptx convert presentation.pptx output.pdf
-  trinity-pptx extract slides.pptx
-  trinity-pptx create my-presentation.js deck.pptx
-  trinity-pptx extract presentation.pptx > content.md
+  trinity-office convert presentation.pptx output.pdf
+  trinity-office extract slides.pptx
+  trinity-office create my-presentation.js deck.pptx
+  trinity-office exec soffice --headless --convert-to pdf report.docx
 
 Environment Variables:
-  TRINITY_PPTX_RUNTIME    Path to runtime directory (overrides auto-detect)
+  TRINITY_OFFICE_RUNTIME    Path to runtime directory (overrides auto-detect)
   TRINITY_NO_SANDBOX      Set to "1" to disable sandbox
   TRINITY_BWRAP_OPTS      Additional bubblewrap options
 
@@ -66,7 +69,7 @@ EOF
 # Log verbose messages
 log() {
     if [ "$VERBOSE" = true ]; then
-        echo "[trinity-pptx] $*" >&2
+        echo "[trinity-office] $*" >&2
     fi
 }
 
@@ -519,7 +522,7 @@ render_text_pdf() {
     local markdown_file
     local render_status=0
 
-    markdown_file="$(mktemp "${TMPDIR:-/tmp}/trinity-pptx-markdown.XXXXXX")"
+    markdown_file="$(mktemp "${TMPDIR:-/tmp}/trinity-office-markdown.XXXXXX")"
     printf '%s' "$markdown_content" > "$markdown_file"
 
     TEXT_PDF_OUTPUT="$output_path" \
@@ -560,9 +563,9 @@ def normalize_markdown(content: str) -> list[str]:
     return lines
 
 header_lines = [
-    "Trinity PPTX fallback preview",
+    "Trinity Office fallback preview",
     f"Source: {source_name}",
-    "Visual PPTX-to-PDF conversion failed; this PDF contains extracted slide text.",
+    "Visual presentation-to-PDF conversion failed; this PDF contains extracted slide text.",
     "",
 ]
 
@@ -905,7 +908,7 @@ build_bwrap_cmd() {
 run_rootfs_command_without_sandbox() {
     local cmd="$1"
     shift
-    local runtime_home="${TMPDIR:-/tmp}/trinity-pptx-home"
+    local runtime_home="${TMPDIR:-/tmp}/trinity-office-home"
     local rootfs_command=""
     local rootfs_loader=""
     local rootfs_library_path=""
@@ -945,7 +948,7 @@ run_rootfs_command_without_sandbox() {
 run_sandboxed() {
     local cmd="$1"
     shift
-    local runtime_home="${TMPDIR:-/tmp}/trinity-pptx-home"
+    local runtime_home="${TMPDIR:-/tmp}/trinity-office-home"
     local runtime_pythonpath=""
     local runtime_nodepath=""
     local runtime_library_path=""
@@ -1079,8 +1082,8 @@ exec_sandboxed() {
     exit $?
 }
 
-# Convert PPTX to PDF
-convert_pptx() {
+# Convert a presentation to PDF
+convert_presentation() {
     local input="$1"
     local input_path
     local output
@@ -1105,7 +1108,7 @@ convert_pptx() {
     generate_pdf_preview "$input_name" "$output_path"
 }
 
-# Extract text from PPTX
+# Extract text from a presentation
 extract_text() {
     local input="$1"
     local input_path
@@ -1150,8 +1153,8 @@ generate_thumbnail() {
     rm -f "$intermediate_pdf"
 }
 
-# Create PPTX from JavaScript
-create_pptx() {
+# Create a presentation from JavaScript
+create_presentation() {
     local script="$1"
     local script_path
     local output_path
@@ -1163,7 +1166,7 @@ create_pptx() {
         output_path="$(normalize_output_path "output.pptx")"
     fi
 
-    log "Creating PPTX from: $script_path -> $output_path"
+    log "Creating presentation from: $script_path -> $output_path"
 
     INPUT_DIR="$(cd "$(dirname "$script_path")" && pwd)"
     WORK_DIR="$(cd "$(dirname "$output_path")" && pwd)"
@@ -1178,8 +1181,8 @@ create_pptx() {
 # Main execution
 main() {
     # Check environment overrides
-    if [ -n "${TRINITY_PPTX_RUNTIME:-}" ]; then
-        RUNTIME_DIR="$TRINITY_PPTX_RUNTIME"
+    if [ -n "${TRINITY_OFFICE_RUNTIME:-}" ]; then
+        RUNTIME_DIR="$TRINITY_OFFICE_RUNTIME"
     fi
     VERSION_FILE="${RUNTIME_DIR}/VERSION"
     
@@ -1225,7 +1228,7 @@ main() {
     # Check runtime directory
     if [ ! -d "$RUNTIME_DIR/bin" ]; then
         echo "Error: Runtime directory not found or invalid: $RUNTIME_DIR" >&2
-        echo "Set TRINITY_PPTX_RUNTIME to the correct path." >&2
+        echo "Set TRINITY_OFFICE_RUNTIME to the correct path." >&2
         exit 1
     fi
 
@@ -1246,35 +1249,35 @@ main() {
     case "$command" in
         convert)
             if [ $# -lt 1 ]; then
-                echo "Usage: trinity-pptx convert <input.pptx> [output.pdf]" >&2
+                echo "Usage: trinity-office convert <input.pptx> [output.pdf]" >&2
                 exit 1
             fi
-            convert_pptx "$@"
+            convert_presentation "$@"
             ;;
         extract)
             if [ $# -lt 1 ]; then
-                echo "Usage: trinity-pptx extract <input.pptx>" >&2
+                echo "Usage: trinity-office extract <input.pptx>" >&2
                 exit 1
             fi
             extract_text "$@"
             ;;
         thumbnail)
             if [ $# -lt 1 ]; then
-                echo "Usage: trinity-pptx thumbnail <input.pptx> [output.jpg]" >&2
+                echo "Usage: trinity-office thumbnail <input.pptx> [output.jpg]" >&2
                 exit 1
             fi
             generate_thumbnail "$@"
             ;;
         create)
             if [ $# -lt 1 ]; then
-                echo "Usage: trinity-pptx create <script.js> [output.pptx]" >&2
+                echo "Usage: trinity-office create <script.js> [output.pptx]" >&2
                 exit 1
             fi
-            create_pptx "$@"
+            create_presentation "$@"
             ;;
         exec)
             if [ $# -lt 1 ]; then
-                echo "Usage: trinity-pptx exec <command> [args...]" >&2
+                echo "Usage: trinity-office exec <command> [args...]" >&2
                 exit 1
             fi
             exec_sandboxed "$@"

@@ -1,4 +1,4 @@
-name: Release PPTX Runtime
+name: Release Office Runtime
 
 on:
   push:
@@ -45,8 +45,8 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: trinity-pptx-runtime-linux-x64
-        path: trinity-pptx-runtime-linux-x64.tar.gz
+        name: trinity-office-runtime-linux-x64
+        path: trinity-office-runtime-linux-x64.tar.gz
         retention-days: 1
 
   build-linux-arm64:
@@ -79,8 +79,8 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: trinity-pptx-runtime-linux-arm64
-        path: trinity-pptx-runtime-linux-arm64.tar.gz
+        name: trinity-office-runtime-linux-arm64
+        path: trinity-office-runtime-linux-arm64.tar.gz
         retention-days: 1
 
   create-release:
@@ -121,11 +121,11 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         tag_name: ${{ steps.version.outputs.TAG }}
-        name: Trinity PPTX Runtime ${{ steps.version.outputs.VERSION }}
+        name: Trinity Office Runtime ${{ steps.version.outputs.VERSION }}
         body: |
-          ## Trinity PPTX Runtime ${{ steps.version.outputs.VERSION }}
+          ## Trinity Office Runtime ${{ steps.version.outputs.VERSION }}
           
-          A sandboxed runtime for processing PPTX files, bundled with:
+          A sandboxed runtime for office-document workflows, bundled with:
           - LibreOffice (soffice)
           - Python 3 + markitdown
           - Node.js + pptxgenjs
@@ -135,22 +135,22 @@ jobs:
           
           | Platform | Architecture | Package |
           |----------|-------------|---------|
-          | Linux | x64 | [trinity-pptx-runtime-linux-x64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.TAG }}/trinity-pptx-runtime-linux-x64.tar.gz) |
-          | Linux | arm64 | [trinity-pptx-runtime-linux-arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.TAG }}/trinity-pptx-runtime-linux-arm64.tar.gz) |
+          | Linux | x64 | [trinity-office-runtime-linux-x64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.TAG }}/trinity-office-runtime-linux-x64.tar.gz) |
+          | Linux | arm64 | [trinity-office-runtime-linux-arm64.tar.gz](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.TAG }}/trinity-office-runtime-linux-arm64.tar.gz) |
           
           ### Quick Start
           
           ```bash
           # Download and extract
-          curl -LO https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.TAG }}/trinity-pptx-runtime-linux-x64.tar.gz
-          tar xzf trinity-pptx-runtime-linux-x64.tar.gz -C ~/.local/share/trinity-pptx-runtime
+          curl -LO https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.TAG }}/trinity-office-runtime-linux-x64.tar.gz
+          tar xzf trinity-office-runtime-linux-x64.tar.gz -C ~/.local/share/trinity-office-runtime
           
           # Add to PATH
-          export PATH="\$HOME/.local/share/trinity-pptx-runtime:\$PATH"
+          export PATH="\$HOME/.local/share/trinity-office-runtime:\$PATH"
           
           # Use it
-          trinity-pptx convert presentation.pptx output.pdf
-          trinity-pptx extract presentation.pptx
+          trinity-office convert presentation.pptx output.pdf
+          trinity-office exec soffice --headless --convert-to pdf report.docx
           ```
           
           ### Checksums

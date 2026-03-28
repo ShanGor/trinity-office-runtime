@@ -1,17 +1,18 @@
-# Trinity PPTX Runtime
+# Trinity Office Runtime
 
-A sandboxed runtime environment for processing PPTX files, designed to work with the Trinity AI Agent platform.
+A sandboxed runtime environment for AI agents to generate, extract, edit, and convert office documents.
 
 ## Overview
 
-This runtime packages all necessary tools for PPTX processing into a single, self-contained bundle:
+This runtime packages the core tools needed for office-file workflows into a single, self-contained bundle:
 
-- **LibreOffice** (soffice) - Convert PPTX to PDF and other formats
-- **Python 3** + **markitdown** - Extract text and metadata from PPTX
+- **LibreOffice** (soffice) - Convert and edit many office document formats
+- **Python 3** + **markitdown** - Extract text and metadata from supported documents
 - **Node.js** + **pptxgenjs** - Create PPTX files programmatically
 - **Poppler** (pdftoppm) - Convert PDF pages to images
 
 All tools run inside a [bubblewrap](https://github.com/containers/bubblewrap) sandbox for security.
+The built-in `convert`, `extract`, `thumbnail`, and `create` commands remain PPTX-focused convenience wrappers; use `trinity-office exec` for broader DOCX/XLSX/ODT/ODS/ODP workflows.
 
 ## Quick Start
 
@@ -27,11 +28,11 @@ bash runtime/build.sh
 
 ```bash
 # Download and run the installer
-curl -fsSL https://raw.githubusercontent.com/ShanGor/trinity-pptx-runtime/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ShanGor/trinity-office-runtime/main/install.sh | bash
 
 # Or with a pre-downloaded tarball (useful when GitHub download is slow)
-curl -LO https://github.com/ShanGor/trinity-pptx-runtime/releases/latest/download/trinity-pptx-runtime-linux-x64.tar.gz
-./install.sh --tarball trinity-pptx-runtime-linux-x64.tar.gz
+curl -LO https://github.com/ShanGor/trinity-office-runtime/releases/latest/download/trinity-office-runtime-linux-x64.tar.gz
+./install.sh --tarball trinity-office-runtime-linux-x64.tar.gz
 ```
 
 #### Installer Options
@@ -39,14 +40,14 @@ curl -LO https://github.com/ShanGor/trinity-pptx-runtime/releases/latest/downloa
 | Option | Description |
 |--------|-------------|
 | `--version <ver>` | Install specific version (default: latest) |
-| `--install-dir <dir>` | Installation directory (default: ~/.local/share/trinity-pptx-runtime) |
+| `--install-dir <dir>` | Installation directory (default: ~/.local/share/trinity-office-runtime) |
 | `--bin-dir <dir>` | Binary symlink directory (default: ~/.local/bin) |
 | `--tarball <path>` | Install from local tarball instead of downloading |
 | `--local` | Install from an already-built local artifact |
 | `--release` | Install from GitHub release (default) |
 
 `install.sh` downloads the GitHub release by default. If you have already built a local runtime artifact from a source checkout, use `--local` to install that artifact explicitly instead.
-When `install.sh` is run from a source checkout, it installs the checked-out `wrapper/trinity-pptx` over the downloaded bundle so wrapper fixes apply immediately. Standalone installs still repair older downloaded wrappers before runtime verification, including the extra sandbox mounts and bundled-library search paths needed by LibreOffice.
+When `install.sh` is run from a source checkout, it installs the checked-out `wrapper/trinity-office` over the downloaded bundle so wrapper fixes apply immediately. Standalone installs still repair older downloaded wrappers before runtime verification, including the extra sandbox mounts and bundled-library search paths needed by LibreOffice.
 The wrapper now searches runtime loader paths under both `lib` and `usr/lib` multi-arch roots, so legacy bundles that place LibreOffice dependencies under `usr/lib/*-linux-gnu` (for example `libgpgmepp.so.6`) can still start `soffice` successfully.
 The installer and build now also repair LibreOffice program compatibility entries inside `lib/*-linux-gnu`, because some bundled UNO/bootstrap assets are resolved from those multi-arch roots during `soffice` startup.
 The installer also rewrites LibreOffice bootstrap metadata inside the bundle to use bundle-relative program/config paths while keeping `UserInstallation` on the writable per-user profile path instead of inside the read-only runtime mount.
@@ -57,19 +58,19 @@ If an older release bundle still lacks bundled software-rendering files such as 
 
 ```bash
 # Convert PPTX to PDF
-trinity-pptx convert presentation.pptx output.pdf
+trinity-office convert presentation.pptx output.pdf
 
 # Extract text content
-trinity-pptx extract presentation.pptx
+trinity-office extract presentation.pptx
 
 # Generate thumbnail preview
-trinity-pptx thumbnail presentation.pptx preview.jpg
+trinity-office thumbnail presentation.pptx preview.jpg
 
 # Create PPTX from JavaScript
-trinity-pptx create my-script.js output.pptx
+trinity-office create my-script.js output.pptx
 
 # Execute arbitrary command in sandbox
-trinity-pptx exec python3 -c "print('hello from runtime')"
+trinity-office exec python3 -c "print('hello from runtime')"
 ```
 
 ## Commands
@@ -81,8 +82,8 @@ Relative input and output paths are resolved against the current working directo
 If bundled LibreOffice cannot complete a visual conversion, the wrapper falls back to a text-only PDF generated from extracted slide content so downstream preview still receives a PDF artifact.
 
 ```bash
-trinity-pptx convert slides.pptx
-trinity-pptx convert slides.pptx output.pdf
+trinity-office convert slides.pptx
+trinity-office convert slides.pptx output.pdf
 ```
 
 ### `extract <input.pptx>`
@@ -90,8 +91,8 @@ trinity-pptx convert slides.pptx output.pdf
 Extract text content from a PPTX file using markitdown.
 
 ```bash
-trinity-pptx extract presentation.pptx
-trinity-pptx extract presentation.pptx > content.md
+trinity-office extract presentation.pptx
+trinity-office extract presentation.pptx > content.md
 ```
 
 ### `thumbnail <input.pptx> [output.jpg]`
@@ -101,8 +102,8 @@ Relative input and output paths are resolved against the current working directo
 If bundled LibreOffice cannot render slides directly, the wrapper first builds the same extracted-text PDF fallback and then renders the JPG from that PDF.
 
 ```bash
-trinity-pptx thumbnail deck.pptx
-trinity-pptx thumbnail deck.pptx preview.jpg
+trinity-office thumbnail deck.pptx
+trinity-office thumbnail deck.pptx preview.jpg
 ```
 
 ### `create <script.js> [output.pptx]`
@@ -119,7 +120,7 @@ pptx.writeFile({ fileName: process.argv[3] || "output.pptx" });
 ```
 
 ```bash
-trinity-pptx create my-presentation.js
+trinity-office create my-presentation.js
 ```
 
 ### `exec <command> [args...]`
@@ -127,9 +128,9 @@ trinity-pptx create my-presentation.js
 Execute an arbitrary command inside the sandboxed environment.
 
 ```bash
-trinity-pptx exec python3 --version
-trinity-pptx exec node --version
-trinity-pptx exec soffice --headless --convert-to pdf input.docx
+trinity-office exec python3 --version
+trinity-office exec node --version
+trinity-office exec soffice --headless --convert-to pdf input.docx
 ```
 
 ## Options
@@ -142,7 +143,7 @@ trinity-pptx exec soffice --headless --convert-to pdf input.docx
 
 ## Environment Variables
 
-- `TRINITY_PPTX_RUNTIME` - Path to runtime directory (overrides auto-detect)
+- `TRINITY_OFFICE_RUNTIME` - Path to runtime directory (overrides auto-detect)
 - `TRINITY_NO_SANDBOX` - Set to `"1"` to disable sandbox
 - `TRINITY_BWRAP_OPTS` - Additional bubblewrap options
 
@@ -163,8 +164,8 @@ Requires root access for `debootstrap` and `chroot`:
 
 ```bash
 # Clone the repository
-git clone https://github.com/ShanGor/trinity-pptx-runtime.git
-cd trinity-pptx-runtime
+git clone https://github.com/ShanGor/trinity-office-runtime.git
+cd trinity-office-runtime
 
 # Install build dependencies
 sudo apt-get update
@@ -174,10 +175,10 @@ sudo apt-get install -y debootstrap curl binutils xz-utils
 cd runtime
 sudo ./build.sh
 
-# Output: trinity-pptx-runtime-linux-x64.tar.gz
+# Output: trinity-office-runtime-linux-x64.tar.gz
 ```
 
-Build downloads are cached locally by default under `${XDG_CACHE_HOME:-$HOME/.cache}/trinity-pptx-runtime`.
+Build downloads are cached locally by default under `${XDG_CACHE_HOME:-$HOME/.cache}/trinity-office-runtime`.
 Override that location with `TRINITY_BUILD_CACHE_DIR=/path/to/cache` when you want a shared or persistent cache across worktrees.
 
 **What the build script does:**
@@ -200,7 +201,7 @@ git push origin v1.0.0
 ```
 
 **Or trigger manually:**
-1. Go to GitHub repository → Actions → "Release PPTX Runtime"
+1. Go to GitHub repository → Actions → "Release Office Runtime"
 2. Click "Run workflow"
 3. Enter version number (e.g., `1.0.0`)
 4. Click "Run workflow"
@@ -218,8 +219,8 @@ If you don't have root access or want an isolated build:
 
 ```bash
 # Clone the repository
-git clone https://github.com/ShanGor/trinity-pptx-runtime.git
-cd trinity-pptx-runtime
+git clone https://github.com/ShanGor/trinity-office-runtime.git
+cd trinity-office-runtime
 
 # Build using Docker
 docker run --rm -v $(pwd):/workspace -w /workspace ubuntu:24.04 \
@@ -230,7 +231,7 @@ docker run --rm -v $(pwd):/workspace -w /workspace ubuntu:24.04 \
     ./build.sh
   "
 
-# Output: trinity-pptx-runtime-linux-x64.tar.gz
+# Output: trinity-office-runtime-linux-x64.tar.gz
 ```
 
 ### Build Output
@@ -238,11 +239,11 @@ docker run --rm -v $(pwd):/workspace -w /workspace ubuntu:24.04 \
 All methods produce the same output structure:
 
 ```
-trinity-pptx-runtime-linux-x64.tar.gz (or -arm64.tar.gz)
+trinity-office-runtime-linux-x64.tar.gz (or -arm64.tar.gz)
 ├── bin/                    # Binaries (soffice, python3, node, pdftoppm, etc.)
 ├── lib/                    # Shared libraries
 ├── share/                  # Data files (fonts, LibreOffice config)
-├── trinity-pptx           # Main entry script
+├── trinity-office           # Main entry script
 └── VERSION                # Version information
 ```
 
@@ -251,11 +252,11 @@ trinity-pptx-runtime-linux-x64.tar.gz (or -arm64.tar.gz)
 ## Architecture
 
 ```
-trinity-pptx-runtime/
+trinity-office-runtime/
 ├── bin/                    # Binaries (soffice, python3, node, etc.)
 ├── lib/                    # Shared libraries
 ├── share/                  # Data files (fonts, LibreOffice config)
-├── trinity-pptx           # Main entry script
+├── trinity-office           # Main entry script
 └── VERSION                # Version information
 ```
 
@@ -281,24 +282,24 @@ For maximum security, ensure bubblewrap is installed and the kernel has user nam
 
 Trinity can automatically detect and use this runtime:
 
-1. **Auto-detect local development**: Check `../trinity-pptx-runtime/`
-2. **Check user installation**: `~/.local/share/trinity-pptx-runtime/`
+1. **Auto-detect local development**: Check `../trinity-office-runtime/`
+2. **Check user installation**: `~/.local/share/trinity-office-runtime/`
 3. **Download on demand**: Fetch from GitHub Releases if not found
 
 Example detection logic:
 
 ```python
-def find_pptx_runtime():
+def find_office_runtime():
     # Priority order
     paths = [
-        os.environ.get("TRINITY_PPTX_RUNTIME"),
-        "../trinity-pptx-runtime",  # Local dev
-        os.path.expanduser("~/.local/share/trinity-pptx-runtime"),
-        "/opt/trinity-pptx-runtime",
+        os.environ.get("TRINITY_OFFICE_RUNTIME"),
+        "../trinity-office-runtime",  # Local dev
+        os.path.expanduser("~/.local/share/trinity-office-runtime"),
+        "/opt/trinity-office-runtime",
     ]
     
     for path in paths:
-        if path and os.path.exists(f"{path}/trinity-pptx"):
+        if path and os.path.exists(f"{path}/trinity-office"):
             return path
     
     return None
@@ -314,5 +315,5 @@ Contributions are welcome! Please open an issue or pull request on GitHub.
 
 ## Support
 
-- GitHub Issues: https://github.com/ShanGor/trinity-pptx-runtime/issues
+- GitHub Issues: https://github.com/ShanGor/trinity-office-runtime/issues
 - Trinity Documentation: https://github.com/your-org/trinity/docs

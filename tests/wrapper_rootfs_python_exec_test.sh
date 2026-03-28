@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-WRAPPER="${PROJECT_ROOT}/wrapper/trinity-pptx"
+WRAPPER="${PROJECT_ROOT}/wrapper/trinity-office"
 
 if ! command -v bwrap >/dev/null 2>&1; then
     echo "SKIP: bwrap not available"
@@ -52,7 +52,7 @@ ln -s rootfs/usr/bin "${runtime_dir}/bin"
 ln -s rootfs/usr/lib "${runtime_dir}/lib"
 
 output="$(
-    TRINITY_PPTX_RUNTIME="${runtime_dir}" \
+    TRINITY_OFFICE_RUNTIME="${runtime_dir}" \
     "${WRAPPER}" exec python3 -c "import sys; print(sys.executable)"
 )"
 

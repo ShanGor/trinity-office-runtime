@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-# Build script for Trinity PPTX Runtime
+# Build script for Trinity Office Runtime
 # Creates a minimal rootfs with LibreOffice, Python, Node.js, and Poppler
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -15,7 +15,7 @@ UBUNTU_VERSION="${UBUNTU_VERSION:-24.04}"
 UBUNTU_CODENAME="${UBUNTU_CODENAME:-noble}"
 LIBREOFFICE_VERSION="${LIBREOFFICE_VERSION:-26.2.2}"
 LIBREOFFICE_DOWNLOAD_BASE="${LIBREOFFICE_DOWNLOAD_BASE:-https://download.documentfoundation.org/libreoffice/stable}"
-BUILD_CACHE_DIR="${TRINITY_BUILD_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/trinity-pptx-runtime}"
+BUILD_CACHE_DIR="${TRINITY_BUILD_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/trinity-office-runtime}"
 
 copy_tree_contents() {
     local src="$1"
@@ -109,7 +109,7 @@ choose_build_dir() {
         return 0
     fi
 
-    mktemp -d "${TMPDIR:-/tmp}/trinity-pptx-runtime-build.XXXXXX"
+    mktemp -d "${TMPDIR:-/tmp}/trinity-office-runtime-build.XXXXXX"
 }
 
 resolve_ubuntu_repo() {
@@ -574,7 +574,7 @@ else:
     raise last_error or ModuleNotFoundError("No MarkItDown module is available")
 '
 
-    TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec python3 -c "$script" >/dev/null
+    TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-office" exec python3 -c "$script" >/dev/null
 }
 
 verify_markitdown_rootfs_runtime() {
@@ -675,17 +675,17 @@ verify_runtime_bundle() {
     else
         verify_markitdown_runtime
 
-        TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
+        TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-office" exec \
             node -e "require('pptxgenjs')"
 
         env -u DISPLAY -u WAYLAND_DISPLAY -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS \
-            TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-pptx" exec \
+            TRINITY_NO_SANDBOX=1 "$DIST_DIR/trinity-office" exec \
             soffice --headless --version >/dev/null
     fi
 
     if bwrap_is_usable; then
         env -u DISPLAY -u WAYLAND_DISPLAY -u XDG_RUNTIME_DIR -u DBUS_SESSION_BUS_ADDRESS \
-            "$DIST_DIR/trinity-pptx" exec soffice --headless --version >/dev/null
+            "$DIST_DIR/trinity-office" exec soffice --headless --version >/dev/null
     elif command -v bwrap >/dev/null 2>&1; then
         echo "Skipping sandboxed soffice verification because bubblewrap is installed but unusable in this environment"
     fi
@@ -714,7 +714,7 @@ main() {
     BUILD_DIR="$(choose_build_dir "$preferred_build_dir")"
     ROOTFS="$BUILD_DIR/rootfs"
 
-    echo "=== Trinity PPTX Runtime Builder ==="
+    echo "=== Trinity Office Runtime Builder ==="
     echo "Build directory: $BUILD_DIR"
     echo "Output directory: $DIST_DIR"
     if [ "$BUILD_DIR" != "$preferred_build_dir" ]; then
@@ -823,7 +823,7 @@ EOF
     # /usr/local on future distro or toolchain changes.
     # Use the no-magika MarkItDown distribution here because the upstream
     # magika/onnxruntime stack has started crashing during bundled runtime
-    # verification on GitHub Actions, while PPTX extraction only needs the
+    # verification on GitHub Actions, while presentation extraction only needs the
     # core MarkItDown CLI/API.
     echo "Installing Python packages..."
     run_in_chroot "$ROOTFS" mkdir -p /usr/lib/python3/dist-packages
@@ -880,8 +880,8 @@ EOF
     ln -s "rootfs/var" "$DIST_DIR/var"
 
     # Copy wrapper script
-    cp "$PROJECT_ROOT/wrapper/trinity-pptx" "$DIST_DIR/"
-    chmod +x "$DIST_DIR/trinity-pptx"
+    cp "$PROJECT_ROOT/wrapper/trinity-office" "$DIST_DIR/"
+    chmod +x "$DIST_DIR/trinity-office"
 
     # Create version file
     echo "1.0.0" > "$DIST_DIR/VERSION"
@@ -892,12 +892,12 @@ EOF
     # Create tarball
     echo "Creating tarball..."
     cd "$PROJECT_ROOT"
-    tar --hard-dereference -czf "trinity-pptx-runtime-linux-${ARCH_NAME}.tar.gz" -C "$DIST_DIR" .
+    tar --hard-dereference -czf "trinity-office-runtime-linux-${ARCH_NAME}.tar.gz" -C "$DIST_DIR" .
 
     echo ""
     echo "=== Build Complete ==="
-    echo "Output: trinity-pptx-runtime-linux-${ARCH_NAME}.tar.gz"
-    echo "Size: $(du -h "trinity-pptx-runtime-linux-${ARCH_NAME}.tar.gz" | cut -f1)"
+    echo "Output: trinity-office-runtime-linux-${ARCH_NAME}.tar.gz"
+    echo "Size: $(du -h "trinity-office-runtime-linux-${ARCH_NAME}.tar.gz" | cut -f1)"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

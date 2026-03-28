@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-WRAPPER="${PROJECT_ROOT}/wrapper/trinity-pptx"
+WRAPPER="${PROJECT_ROOT}/wrapper/trinity-office"
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -22,7 +22,7 @@ chmod +x "${runtime_dir}/bin/node"
 
 output="$(
     TRINITY_NO_SANDBOX=1 \
-    TRINITY_PPTX_RUNTIME="${runtime_dir}" \
+    TRINITY_OFFICE_RUNTIME="${runtime_dir}" \
     "${WRAPPER}" exec node -e "process.exit(0)"
 )"
 

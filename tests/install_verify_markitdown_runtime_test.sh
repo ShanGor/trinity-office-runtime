@@ -15,7 +15,7 @@ runtime_dir="${tmpdir}/runtime"
 capture_file="${tmpdir}/capture.txt"
 mkdir -p "${runtime_dir}"
 
-cat > "${runtime_dir}/trinity-pptx" << 'INNER'
+cat > "${runtime_dir}/trinity-office" << 'INNER'
 #!/bin/sh
 printf '%s\n' "$*" > "${CAPTURE_FILE}"
 
@@ -32,7 +32,7 @@ case "${4:-}" in
         ;;
 esac
 INNER
-chmod +x "${runtime_dir}/trinity-pptx"
+chmod +x "${runtime_dir}/trinity-office"
 
 export CAPTURE_FILE="${capture_file}"
 verify_markitdown_runtime "${runtime_dir}" >/dev/null

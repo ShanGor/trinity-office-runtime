@@ -15,7 +15,7 @@ DIST_DIR="${tmpdir}/dist"
 capture_file="${tmpdir}/capture.txt"
 mkdir -p "$DIST_DIR"
 
-cat > "${DIST_DIR}/trinity-pptx" << 'INNER'
+cat > "${DIST_DIR}/trinity-office" << 'INNER'
 #!/bin/sh
 printf '%s\n' "$*" > "${CAPTURE_FILE}"
 
@@ -32,7 +32,7 @@ case "${4:-}" in
         ;;
 esac
 INNER
-chmod +x "${DIST_DIR}/trinity-pptx"
+chmod +x "${DIST_DIR}/trinity-office"
 
 export CAPTURE_FILE="${capture_file}"
 verify_markitdown_runtime

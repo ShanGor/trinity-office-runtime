@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Trinity PPTX Runtime - Installation Script
+# Trinity Office Runtime - Installation Script
 # Downloads and installs a release by default; local install is explicit-only
 #
 
@@ -8,9 +8,9 @@ set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO="trinity-pptx-runtime"
+REPO="trinity-office-runtime"
 GITHUB_REPO="ShanGor/${REPO}"
-INSTALL_DIR="${HOME}/.local/share/trinity-pptx-runtime"
+INSTALL_DIR="${HOME}/.local/share/trinity-office-runtime"
 BIN_DIR="${HOME}/.local/bin"
 VERSION="${VERSION:-latest}"
 SOURCE_MODE="release"
@@ -105,9 +105,9 @@ get_download_url() {
     local os="$3"
     
     if [ "$version" = "latest" ]; then
-        echo "https://github.com/${GITHUB_REPO}/releases/latest/download/trinity-pptx-runtime-${os}-${arch}.tar.gz"
+        echo "https://github.com/${GITHUB_REPO}/releases/latest/download/trinity-office-runtime-${os}-${arch}.tar.gz"
     else
-        echo "https://github.com/${GITHUB_REPO}/releases/download/v${version}/trinity-pptx-runtime-${os}-${arch}.tar.gz"
+        echo "https://github.com/${GITHUB_REPO}/releases/download/v${version}/trinity-office-runtime-${os}-${arch}.tar.gz"
     fi
 }
 
@@ -363,7 +363,7 @@ repair_wrapper_script() {
 
 install_runtime_wrapper() {
     local wrapper_path="$1"
-    local current_wrapper="${SCRIPT_DIR}/wrapper/trinity-pptx"
+    local current_wrapper="${SCRIPT_DIR}/wrapper/trinity-office"
 
     if [ -f "$current_wrapper" ]; then
         log_info "Installing current wrapper script from checkout..."
@@ -378,7 +378,7 @@ install_runtime_wrapper() {
 create_bin_symlink() {
     log_info "Creating symlink in ${BIN_DIR}..."
     mkdir -p "$BIN_DIR"
-    ln -sfn "${INSTALL_DIR}/trinity-pptx" "${BIN_DIR}/trinity-pptx"
+    ln -sfn "${INSTALL_DIR}/trinity-office" "${BIN_DIR}/trinity-office"
 }
 
 extract_tarball_into_install_dir() {
@@ -387,7 +387,7 @@ extract_tarball_into_install_dir() {
     prepare_install_dir
     log_info "Extracting..."
     tar xzf "$tarball" --no-same-owner -C "$INSTALL_DIR"
-    install_runtime_wrapper "${INSTALL_DIR}/trinity-pptx"
+    install_runtime_wrapper "${INSTALL_DIR}/trinity-office"
     finalize_libreoffice_runtime_layout "${INSTALL_DIR}"
     log_success "Extraction complete"
 }
@@ -398,7 +398,7 @@ copy_dist_into_install_dir() {
     prepare_install_dir
     log_info "Copying local runtime bundle..."
     cp -a "${dist_dir}/." "${INSTALL_DIR}/"
-    install_runtime_wrapper "${INSTALL_DIR}/trinity-pptx"
+    install_runtime_wrapper "${INSTALL_DIR}/trinity-office"
     finalize_libreoffice_runtime_layout "${INSTALL_DIR}"
     log_success "Local runtime copy complete"
 }
@@ -406,7 +406,7 @@ copy_dist_into_install_dir() {
 find_local_tarball() {
     local arch="$1"
     local os="$2"
-    local tarball="${SCRIPT_DIR}/trinity-pptx-runtime-${os}-${arch}.tar.gz"
+    local tarball="${SCRIPT_DIR}/trinity-office-runtime-${os}-${arch}.tar.gz"
     if [ -f "$tarball" ]; then
         echo "$tarball"
     fi
@@ -422,7 +422,7 @@ find_local_install_artifact() {
         return
     fi
 
-    if [ -x "${SCRIPT_DIR}/dist/trinity-pptx" ]; then
+    if [ -x "${SCRIPT_DIR}/dist/trinity-office" ]; then
         echo "${SCRIPT_DIR}/dist"
         return
     fi
@@ -474,7 +474,7 @@ install_from_release() {
 
     download_url=$(get_download_url "$VERSION" "$arch" "$os")
     temp_dir=$(mktemp -d)
-    tarball="${temp_dir}/trinity-pptx-runtime.tar.gz"
+    tarball="${temp_dir}/trinity-office-runtime.tar.gz"
 
     log_info "Detected platform: ${os}-${arch}"
     log_info "Version: ${VERSION}"
@@ -544,7 +544,7 @@ else:
     raise last_error or ModuleNotFoundError("No MarkItDown module is available")
 '
 
-    "${runtime_dir}/trinity-pptx" exec python3 -c "$script"
+    "${runtime_dir}/trinity-office" exec python3 -c "$script"
 }
 
 check_libreoffice_bundle_completeness() {
@@ -596,7 +596,7 @@ update_shell_config() {
     # Add to shell config
     log_info "Adding ${BIN_DIR} to PATH in ${shell_rc}..."
     echo "" >> "$shell_rc"
-    echo "# Trinity PPTX Runtime" >> "$shell_rc"
+    echo "# Trinity Office Runtime" >> "$shell_rc"
     echo 'export PATH="${HOME}/.local/bin:${PATH}"' >> "$shell_rc"
     
     log_warning "Please run: source ${shell_rc}"
@@ -609,14 +609,14 @@ verify_installation() {
     local python_verify_output=""
     local soffice_verify_output=""
     
-    if [ ! -x "${INSTALL_DIR}/trinity-pptx" ]; then
-        log_error "Installation verification failed: trinity-pptx not found"
+    if [ ! -x "${INSTALL_DIR}/trinity-office" ]; then
+        log_error "Installation verification failed: trinity-office not found"
         exit 1
     fi
     
     # Try to run version command
-    if "${INSTALL_DIR}/trinity-pptx" --version &> /dev/null; then
-        local version=$("${INSTALL_DIR}/trinity-pptx" --version)
+    if "${INSTALL_DIR}/trinity-office" --version &> /dev/null; then
+        local version=$("${INSTALL_DIR}/trinity-office" --version)
         log_success "Installation verified: version ${version}"
     else
         log_warning "Could not verify version, but files are in place"
@@ -642,7 +642,7 @@ verify_installation() {
     fi
 
     if bwrap_is_usable; then
-        if soffice_verify_output=$("${INSTALL_DIR}/trinity-pptx" exec soffice --headless --version 2>&1); then
+        if soffice_verify_output=$("${INSTALL_DIR}/trinity-office" exec soffice --headless --version 2>&1); then
             log_success "Sandboxed LibreOffice verified"
         else
             log_error "Runtime verification failed: sandboxed soffice failed to start"
@@ -670,19 +670,24 @@ verify_installation() {
 print_usage() {
     echo ""
     echo "========================================"
-    echo "Trinity PPTX Runtime installed!"
+    echo "Trinity Office Runtime installed!"
     echo "========================================"
     echo ""
     echo "Usage:"
-    echo "  trinity-pptx convert <input.pptx> [output.pdf]  - Convert PPTX to PDF"
-    echo "  trinity-pptx extract <input.pptx>               - Extract text from PPTX"
-    echo "  trinity-pptx thumbnail <input.pptx> [output]    - Generate thumbnail"
-    echo "  trinity-pptx create <script.js> [output.pptx]   - Create PPTX from JS"
-    echo "  trinity-pptx --help                             - Show full help"
+    echo "  trinity-office convert <input.pptx> [output.pdf]  - Convert PPTX to PDF"
+    echo "  trinity-office extract <input.pptx>               - Extract text from PPTX"
+    echo "  trinity-office thumbnail <input.pptx> [output]    - Generate thumbnail"
+    echo "  trinity-office create <script.js> [output.pptx]   - Create PPTX from JS"
+    echo "  trinity-office exec soffice ...                   - Run bundled office tools directly"
+    echo "  trinity-office --help                             - Show full help"
     echo ""
     echo "Examples:"
-    echo "  trinity-pptx convert presentation.pptx"
-    echo "  trinity-pptx extract slides.pptx > content.txt"
+    echo "  trinity-office convert presentation.pptx"
+    echo "  trinity-office extract slides.pptx > content.txt"
+    echo "  trinity-office exec soffice --headless --convert-to pdf report.docx"
+    echo ""
+    echo "Note:"
+    echo "  The convenience commands currently focus on PPTX. Use exec for broader office workflows."
     echo ""
     echo "For more information:"
     echo "  https://github.com/${GITHUB_REPO}"
@@ -692,7 +697,7 @@ print_usage() {
 # Main function
 main() {
     echo "========================================"
-    echo "Trinity PPTX Runtime Installer"
+    echo "Trinity Office Runtime Installer"
     echo "========================================"
     echo ""
     
@@ -728,7 +733,7 @@ main() {
                 echo ""
                 echo "Options:"
                 echo "  --version <ver>      Install specific version (default: latest)"
-                echo "  --install-dir <dir>  Installation directory (default: ~/.local/share/trinity-pptx-runtime)"
+                echo "  --install-dir <dir>  Installation directory (default: ~/.local/share/trinity-office-runtime)"
                 echo "  --bin-dir <dir>      Binary symlink directory (default: ~/.local/bin)"
                 echo "  --tarball <path>     Install from local tarball instead of downloading"
                 echo "  --local              Install from an already-built local artifact"
