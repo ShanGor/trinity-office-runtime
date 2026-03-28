@@ -506,6 +506,26 @@ bwrap_is_usable() {
     bwrap --ro-bind / / --dev /dev --proc /proc /bin/true >/dev/null 2>&1
 }
 
+verify_markitdown_runtime() {
+    local runtime_dir="$1"
+    local script='
+import importlib
+import PIL
+
+last_error = None
+for module_name in ("markitdown", "markitdown_no_magika"):
+    try:
+        importlib.import_module(module_name)
+        break
+    except Exception as exc:
+        last_error = exc
+else:
+    raise last_error or ModuleNotFoundError("No MarkItDown module is available")
+'
+
+    "${runtime_dir}/trinity-pptx" exec python3 -c "$script"
+}
+
 check_libreoffice_bundle_completeness() {
     local install_root="$1"
     local missing=()
@@ -581,7 +601,7 @@ verify_installation() {
         log_warning "Could not verify version, but files are in place"
     fi
 
-    if python_verify_output=$("${INSTALL_DIR}/trinity-pptx" exec python3 -c "import markitdown, PIL" 2>&1); then
+    if python_verify_output=$(verify_markitdown_runtime "${INSTALL_DIR}" 2>&1); then
         log_success "Python extract dependencies verified"
     else
         log_error "Runtime verification failed: bundled Python dependencies are missing"
