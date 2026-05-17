@@ -471,6 +471,31 @@ rewrite_workdir_args() {
     done
 }
 
+rewrite_sandbox_args() {
+    local arg
+
+    rewritten_args=()
+
+    if [ -z "$WORK_DIR" ] && [ -z "$INPUT_DIR" ]; then
+        rewritten_args=("$@")
+        return
+    fi
+
+    for arg in "$@"; do
+        if [ -n "$INPUT_DIR" ] && [ "$arg" = "$INPUT_DIR" ]; then
+            rewritten_args+=("/input")
+        elif [ -n "$INPUT_DIR" ] && [[ "$arg" == "$INPUT_DIR"/* ]]; then
+            rewritten_args+=("/input/${arg#$INPUT_DIR/}")
+        elif [ -n "$WORK_DIR" ] && [ "$arg" = "$WORK_DIR" ]; then
+            rewritten_args+=("/work")
+        elif [ -n "$WORK_DIR" ] && [[ "$arg" == "$WORK_DIR"/* ]]; then
+            rewritten_args+=("/work/${arg#$WORK_DIR/}")
+        else
+            rewritten_args+=("$arg")
+        fi
+    done
+}
+
 resolve_cli_path() {
     local path="$1"
 
@@ -1027,22 +1052,27 @@ run_sandboxed() {
         log "Using bubblewrap sandbox"
         local bwrap_args
         bwrap_args=$(build_bwrap_cmd "$cmd")
+        if [ -n "$WORK_DIR" ] || [ -n "$INPUT_DIR" ]; then
+            rewrite_sandbox_args "$@"
+        else
+            rewritten_args=("$@")
+        fi
 
         if command_uses_runtime_rootfs "$cmd"; then
             rootfs_command="$(discover_rootfs_command_guest_path "$cmd")"
             if [ -n "$WORK_DIR" ]; then
-                bwrap $bwrap_args --chdir /work "$rootfs_command" "$@"
+                bwrap $bwrap_args --chdir /work "$rootfs_command" "${rewritten_args[@]}"
             else
-                bwrap $bwrap_args "$rootfs_command" "$@"
+                bwrap $bwrap_args "$rootfs_command" "${rewritten_args[@]}"
             fi
             return
         fi
         
         # Change to work directory if specified
         if [ -n "$WORK_DIR" ]; then
-            bwrap $bwrap_args --chdir /work /runtime/bin/$cmd "$@"
+            bwrap $bwrap_args --chdir /work /runtime/bin/$cmd "${rewritten_args[@]}"
         else
-            bwrap $bwrap_args /runtime/bin/$cmd "$@"
+            bwrap $bwrap_args /runtime/bin/$cmd "${rewritten_args[@]}"
         fi
     else
         if [ "$USE_BWRAP" = true ] && ! command -v bwrap &> /dev/null; then
@@ -1337,6 +1367,9 @@ main() {
             if [ $# -lt 1 ]; then
                 echo "Usage: trinity-office exec <command> [args...]" >&2
                 exit 1
+            fi
+            if [ -z "$WORK_DIR" ]; then
+                WORK_DIR="$CLI_BASE_DIR"
             fi
             exec_sandboxed "$@"
             ;;

@@ -126,6 +126,7 @@ trinity-office create my-presentation.js
 ### `exec <command> [args...]`
 
 Execute an arbitrary command inside the sandboxed environment.
+Relative paths are resolved against the current working directory, or against `--work-dir` when that option is set. The selected work directory is mounted at `/work` inside the sandbox and used as the sandbox working directory.
 
 ```bash
 trinity-office exec python3 --version
