@@ -163,6 +163,10 @@ EOF
 runtime_node_packages() {
     cat <<'EOF'
 pptxgenjs@3.12.0
+react@19.2.0
+react-dom@19.2.0
+react-icons@5.5.0
+sharp@0.33.5
 EOF
 }
 
